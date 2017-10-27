@@ -1,0 +1,12 @@
+[package]
+name = "cab"
+version = "0.1.0"
+authors = ["Matthew D. Steele <mdsteele@alum.mit.edu>"]
+description = "Read/write Windows cabinet (CAB) files"
+repository = "https://github.com/mdsteele/rust-cab"
+keywords = ["archive", "cab", "cabinet", "windows"]
+license = "MIT"
+readme = "README.md"
+
+[dependencies]
+byteorder = "1"

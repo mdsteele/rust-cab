@@ -1,2 +1,9 @@
 # rust-cab
-Rust library for encoding/decoding Windows cabinet (.cab) files
+
+A pure Rust library for reading/writing [Windows
+cabinet](https://en.wikipedia.org/wiki/Cabinet_(file_format)) (CAB) files.
+
+## License
+
+rust-cab is made available under the
+[MIT License](http://spdx.org/licenses/MIT.html).
