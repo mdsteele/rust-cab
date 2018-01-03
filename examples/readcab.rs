@@ -19,10 +19,13 @@ fn main() {
         println!("Folder #{}:", index);
         println!("  compression_type = {:?}", folder.compression_type());
         println!("  reserve_data = {:?}", folder.reserve_data());
+        println!("  num_data_blocks = {}", folder.num_data_blocks());
+        let mut total_size = 0;
         for file in folder.file_entries() {
-            println!("  {:?} ({} bytes)",
-                     file.name(),
-                     file.uncompressed_size());
+            let size = file.uncompressed_size();
+            println!("  {:?} ({} bytes)", file.name(), size);
+            total_size += size;
         }
+        println!("  {} bytes total", total_size);
     }
 }

@@ -5,21 +5,12 @@
 
 extern crate byteorder;
 
+#[macro_use]
+mod internal;
+
 use byteorder::{LittleEndian, ReadBytesExt};
+pub use internal::ctype::CompressionType;
 use std::io::{self, Read, Seek, SeekFrom};
-
-// ========================================================================= //
-
-macro_rules! invalid_data {
-    ($e:expr) => {
-        return Err(::std::io::Error::new(::std::io::ErrorKind::InvalidData,
-                                         $e))
-    };
-    ($fmt:expr, $($arg:tt)+) => {
-        return Err(::std::io::Error::new(::std::io::ErrorKind::InvalidData,
-                                         format!($fmt, $($arg)+)))
-    };
-}
 
 // ========================================================================= //
 
@@ -32,88 +23,10 @@ const FLAG_PREV_CABINET: u16 = 0x1;
 const FLAG_NEXT_CABINET: u16 = 0x2;
 const FLAG_RESERVE_PRESENT: u16 = 0x4;
 
-// Compression type constants:
-const CTYPE_NONE: u16 = 0;
-const CTYPE_MSZIP: u16 = 1;
-const CTYPE_QUANTUM: u16 = 2;
-const CTYPE_LZX: u16 = 3;
-const QUANTUM_LEVEL_MIN: u16 = 1;
-const QUANTUM_LEVEL_MAX: u16 = 7;
-const QUANTUM_MEMORY_MIN: u16 = 10;
-const QUANTUM_MEMORY_MAX: u16 = 21;
-const LZX_WINDOW_MIN: u16 = 15;
-const LZX_WINDOW_MAX: u16 = 21;
-
 // File attributes:
 const ATTR_READ_ONLY: u16 = 0x01;
 const ATTR_HIDDEN: u16 = 0x02;
 const ATTR_SYSTEM: u16 = 0x04;
-
-// ========================================================================= //
-
-/// A scheme for compressing data within the cabinet.
-#[derive(Clone, Copy, Debug, Hash, Eq, PartialEq)]
-pub enum CompressionType {
-    /// No compression.
-    None,
-    /// MSZIP compression.  MSZIP is described further in
-    /// [MS-MCI](https://msdn.microsoft.com/en-us/library/cc483131.aspx).
-    MsZip,
-    /// Quantum compression with the given level and memory.
-    Quantum(u16, u16),
-    /// LZX compression with the given window size.  The LZX compression scheme
-    /// is described further in
-    /// [MS-PATCH](https://msdn.microsoft.com/en-us/library/cc483133.aspx).
-    Lzx(u16),
-}
-
-impl CompressionType {
-    fn from_bitfield(bits: u16) -> io::Result<CompressionType> {
-        let ctype = bits & 0x000f;
-        if ctype == CTYPE_NONE {
-            Ok(CompressionType::None)
-        } else if ctype == CTYPE_MSZIP {
-            Ok(CompressionType::MsZip)
-        } else if ctype == CTYPE_QUANTUM {
-            let level = (bits & 0x00f0) >> 4;
-            if level < QUANTUM_LEVEL_MIN || level > QUANTUM_LEVEL_MAX {
-                invalid_data!("Invalid Quantum level: 0x{:02x}", level);
-            }
-            let memory = (bits & 0x1f00) >> 8;
-            if memory < QUANTUM_MEMORY_MIN || memory > QUANTUM_MEMORY_MAX {
-                invalid_data!("Invalid Quantum memory: 0x{:02x}", memory);
-            }
-            Ok(CompressionType::Quantum(level, memory))
-        } else if ctype == CTYPE_LZX {
-            let window = (bits & 0x1f00) >> 8;
-            if window < LZX_WINDOW_MIN || window > LZX_WINDOW_MAX {
-                invalid_data!("Invalid LZX window: 0x{:02x}", window);
-            }
-            Ok(CompressionType::Lzx(window))
-        } else {
-            invalid_data!("Invalid compression type: 0x{:04x}", bits);
-        }
-    }
-
-    #[allow(dead_code)]
-    fn to_bitfield(&self) -> u16 {
-        match *self {
-            CompressionType::None => CTYPE_NONE,
-            CompressionType::MsZip => CTYPE_MSZIP,
-            CompressionType::Quantum(level, memory) => {
-                CTYPE_QUANTUM |
-                    (level.max(QUANTUM_LEVEL_MIN).min(QUANTUM_LEVEL_MAX) <<
-                        4) |
-                    (memory.max(QUANTUM_MEMORY_MIN).min(QUANTUM_MEMORY_MAX) <<
-                         8)
-            }
-            CompressionType::Lzx(window) => {
-                CTYPE_LZX |
-                    (window.max(LZX_WINDOW_MIN).min(LZX_WINDOW_MAX) << 8)
-            }
-        }
-    }
-}
 
 // ========================================================================= //
 
@@ -123,6 +36,7 @@ pub struct Cabinet<R> {
     reader: R,
     cabinet_set_id: u16,
     cabinet_set_index: u16,
+    data_reserve_size: u8,
     reserve_data: Vec<u8>,
     folders: Vec<FolderEntry>,
 }
@@ -155,11 +69,11 @@ impl<R: Read + Seek> Cabinet<R> {
         let cabinet_set_index = reader.read_u16::<LittleEndian>()?;
         let mut header_reserve_size = 0u16;
         let mut folder_reserve_size = 0u8;
-        let mut _data_reserve_size = 0u8;
+        let mut data_reserve_size = 0u8;
         if (flags & FLAG_RESERVE_PRESENT) != 0 {
             header_reserve_size = reader.read_u16::<LittleEndian>()?;
             folder_reserve_size = reader.read_u8()?;
-            _data_reserve_size = reader.read_u8()?;
+            data_reserve_size = reader.read_u8()?;
         }
         let mut header_reserve_data = vec![0u8; header_reserve_size as usize];
         if header_reserve_size > 0 {
@@ -203,7 +117,7 @@ impl<R: Read + Seek> Cabinet<R> {
         reader.seek(SeekFrom::Start(first_file_offset as u64))?;
         for _ in 0..num_files {
             let uncompressed_size = reader.read_u32::<LittleEndian>()?;
-            let _uncompressed_offset = reader.read_u32::<LittleEndian>()?;
+            let uncompressed_offset = reader.read_u32::<LittleEndian>()?;
             let folder_index = reader.read_u16::<LittleEndian>()? as usize;
             if folder_index >= folders.len() {
                 invalid_data!("File entry folder index out of bounds");
@@ -215,6 +129,7 @@ impl<R: Read + Seek> Cabinet<R> {
             let entry = FileEntry {
                 name: name,
                 uncompressed_size: uncompressed_size,
+                uncompressed_offset: uncompressed_offset,
                 attributes: attributes,
             };
             folders[folder_index].files.push(entry);
@@ -223,6 +138,7 @@ impl<R: Read + Seek> Cabinet<R> {
                reader: reader,
                cabinet_set_id: cabinet_set_id,
                cabinet_set_index: cabinet_set_index,
+               data_reserve_size: data_reserve_size,
                reserve_data: header_reserve_data,
                folders: folders,
            })
@@ -242,6 +158,94 @@ impl<R: Read + Seek> Cabinet<R> {
     /// Returns an iterator over the folder entries in this cabinet.
     pub fn folder_entries(&self) -> FolderEntries {
         FolderEntries { iter: self.folders.iter() }
+    }
+
+    /// Returns a reader over the decompressed data for the file in the cabinet
+    /// with the given name.
+    pub fn read_file(&mut self, name: &str) -> io::Result<FileReader<R>> {
+        if let Some((folder_index, offset, size)) = self.find_file(name) {
+            let mut folder_reader = self.read_folder(folder_index)?;
+            folder_reader.seek(SeekFrom::Start(offset))?;
+            Ok(FileReader {
+                   reader: folder_reader,
+                   offset: 0,
+                   size: size,
+               })
+        } else {
+            not_found!("No such file in cabinet: {:?}", name);
+        }
+    }
+
+    fn find_file(&mut self, name: &str) -> Option<(usize, u64, u64)> {
+        for (folder_index, folder_entry) in self.folder_entries().enumerate() {
+            for file_entry in folder_entry.file_entries() {
+                if file_entry.name() == name {
+                    let offset = file_entry.uncompressed_offset as u64;
+                    let size = file_entry.uncompressed_size() as u64;
+                    return Some((folder_index, offset, size));
+                }
+            }
+        }
+        None
+    }
+
+    /// Returns a reader over the decompressed data in the specified folder.
+    pub fn read_folder(&mut self, index: usize)
+                       -> io::Result<FolderReader<R>> {
+        if index >= self.folders.len() {
+            invalid_input!("Folder index {} is out of range (cabinet has {} \
+                            folders)",
+                           index,
+                           self.folders.len());
+        }
+        let compression_type = self.folders[index].compression_type();
+        let data_reader = self.read_data(index)?;
+        let decompressor = match compression_type {
+            CompressionType::None => {
+                FolderDecompressor::Uncompressed(data_reader)
+            }
+            CompressionType::MsZip => {
+                invalid_data!("MSZIP decompression is not yet supported.");
+            }
+            CompressionType::Quantum(_, _) => {
+                invalid_data!("Quantum decompression is not yet supported.");
+            }
+            CompressionType::Lzx(_) => {
+                invalid_data!("LZX decompression is not yet supported.");
+            }
+        };
+        Ok(FolderReader { decompressor: decompressor })
+    }
+
+    /// Returns a reader over the compressed data in the specified folder.
+    pub fn read_data(&mut self, index: usize) -> io::Result<DataReader<R>> {
+        if index >= self.folders.len() {
+            invalid_input!("Folder index {} is out of range (cabinet has {} \
+                            folders)",
+                           index,
+                           self.folders.len());
+        }
+        let num_data_blocks = self.folders[index].num_data_blocks() as usize;
+        let mut data_blocks =
+            Vec::<(u64, u64)>::with_capacity(num_data_blocks);
+        let mut cumulative_size: u64 = 0;
+        let mut offset = self.folders[index].first_data_block_offset as u64;
+        for _ in 0..num_data_blocks {
+            self.reader.seek(SeekFrom::Start(offset + 4))?;
+            let compressed_size =
+                self.reader.read_u16::<LittleEndian>().unwrap() as u64;
+            cumulative_size += compressed_size;
+            offset += 8 + self.data_reserve_size as u64;
+            data_blocks.push((cumulative_size, offset));
+            offset += compressed_size;
+        }
+        self.reader.seek(SeekFrom::Start(data_blocks[0].1))?;
+        Ok(DataReader {
+               reader: &mut self.reader,
+               data_blocks: data_blocks,
+               current_offset: 0,
+               current_block: 0,
+           })
     }
 }
 
@@ -279,6 +283,9 @@ impl FolderEntry {
     /// Returns the scheme used to compress this folder's data.
     pub fn compression_type(&self) -> CompressionType { self.compression_type }
 
+    /// Returns the number of data blocks used to store this folder's data.
+    pub fn num_data_blocks(&self) -> u16 { self.num_data_blocks }
+
     /// Returns the application-defined reserve data for this folder.
     pub fn reserve_data(&self) -> &[u8] { &self.reserve_data }
 
@@ -312,6 +319,7 @@ impl<'a> ExactSizeIterator for FileEntries<'a> {}
 pub struct FileEntry {
     name: String,
     uncompressed_size: u32,
+    uncompressed_offset: u32,
     attributes: u16,
 }
 
@@ -338,6 +346,161 @@ impl FileEntry {
 
 // ========================================================================= //
 
+/// A reader for reading decompressed data from a cabinet file.
+pub struct FileReader<'a, R: 'a> {
+    reader: FolderReader<'a, R>,
+    offset: u64,
+    size: u64,
+}
+
+impl<'a, R: Read + Seek> Read for FileReader<'a, R> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        debug_assert!(self.offset <= self.size);
+        let bytes_remaining = self.size - self.offset;
+        let max_bytes = bytes_remaining.min(buf.len() as u64) as usize;
+        if max_bytes == 0 {
+            return Ok(0);
+        }
+        let bytes_read = self.reader.read(&mut buf[0..max_bytes])?;
+        self.offset += bytes_read as u64;
+        Ok(bytes_read)
+    }
+}
+
+impl<'a, R: Read + Seek> Seek for FileReader<'a, R> {
+    fn seek(&mut self, pos: SeekFrom) -> io::Result<u64> {
+        let new_offset = match pos {
+            SeekFrom::Start(offset) => offset as i64,
+            SeekFrom::Current(delta) => self.offset as i64 + delta,
+            SeekFrom::End(delta) => self.size as i64 + delta,
+        };
+        if new_offset < 0 || (new_offset as u64) > self.size {
+            invalid_input!("Cannot seek to {}, file length is {}",
+                           new_offset,
+                           self.size);
+        }
+        self.reader.seek(SeekFrom::Current(new_offset - self.offset as i64))?;
+        self.offset = new_offset as u64;
+        Ok(self.offset)
+    }
+}
+
+// ========================================================================= //
+
+/// A reader for reading decompressed data from a cabinet folder.
+pub struct FolderReader<'a, R: 'a> {
+    decompressor: FolderDecompressor<'a, R>,
+}
+
+enum FolderDecompressor<'a, R: 'a> {
+    Uncompressed(DataReader<'a, R>),
+    // TODO: add options for other compression types
+}
+
+impl<'a, R: Read + Seek> Read for FolderReader<'a, R> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        match self.decompressor {
+            FolderDecompressor::Uncompressed(ref mut data_reader) => {
+                data_reader.read(buf)
+            }
+        }
+    }
+}
+
+impl<'a, R: Read + Seek> Seek for FolderReader<'a, R> {
+    fn seek(&mut self, pos: SeekFrom) -> io::Result<u64> {
+        match self.decompressor {
+            FolderDecompressor::Uncompressed(ref mut data_reader) => {
+                data_reader.seek(pos)
+            }
+        }
+    }
+}
+
+// ========================================================================= //
+
+/// A reader for reading raw, compressed data from a cabinet folder.
+pub struct DataReader<'a, R: 'a> {
+    reader: &'a mut R,
+    data_blocks: Vec<(u64, u64)>,
+    current_offset: u64,
+    current_block: usize,
+}
+
+impl<'a, R: Read + Seek> Read for DataReader<'a, R> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        debug_assert!(self.current_block <= self.data_blocks.len());
+        let bytes_remaining_in_current_block =
+            if self.current_block < self.data_blocks.len() {
+                debug_assert!(self.current_offset <
+                                  self.data_blocks[self.current_block].0);
+                self.data_blocks[self.current_block].0 - self.current_offset
+            } else {
+                0
+            };
+        let max_bytes = bytes_remaining_in_current_block
+            .min(buf.len() as u64) as usize;
+        if max_bytes == 0 {
+            return Ok(0);
+        }
+        let bytes_read = self.reader.read(&mut buf[0..max_bytes])?;
+        self.current_offset += bytes_read as u64;
+        debug_assert!(bytes_read as u64 <= bytes_remaining_in_current_block);
+        if bytes_read as u64 == bytes_remaining_in_current_block {
+            self.current_block += 1;
+            if self.current_block < self.data_blocks.len() {
+                let block_offset = self.data_blocks[self.current_block].1;
+                self.reader.seek(SeekFrom::Start(block_offset))?;
+            }
+        }
+        Ok(bytes_read)
+    }
+}
+
+impl<'a, R: Read + Seek> Seek for DataReader<'a, R> {
+    fn seek(&mut self, pos: SeekFrom) -> io::Result<u64> {
+        debug_assert!(!self.data_blocks.is_empty());
+        let total_size = self.data_blocks.last().unwrap().0;
+        let new_offset = match pos {
+            SeekFrom::Start(offset) => offset as i64,
+            SeekFrom::Current(delta) => self.current_offset as i64 + delta,
+            SeekFrom::End(delta) => total_size as i64 + delta,
+        };
+        if new_offset < 0 || (new_offset as u64) > total_size {
+            invalid_input!("Cannot seek to {}, data length is {}",
+                           new_offset,
+                           total_size);
+        }
+        let new_offset = new_offset as u64;
+        let new_block =
+            match self.data_blocks
+                .binary_search_by_key(&new_offset, |&entry| entry.0) {
+                Ok(index) => index + 1,
+                Err(index) => index,
+            };
+        if new_block < self.data_blocks.len() {
+            let offset_at_block_start = self.data_blocks[new_block].1;
+            let size_at_block_start = if new_block > 0 {
+                self.data_blocks[new_block - 1].0
+            } else {
+                0
+            };
+            debug_assert!(size_at_block_start <= new_offset);
+            let offset_within_block = new_offset - size_at_block_start;
+            self.reader
+                .seek(SeekFrom::Start(offset_at_block_start +
+                                          offset_within_block))?;
+        } else {
+            debug_assert_eq!(new_offset, total_size);
+            debug_assert_eq!(new_block, self.data_blocks.len());
+        }
+        self.current_offset = new_offset;
+        self.current_block = new_block;
+        Ok(self.current_offset)
+    }
+}
+// ========================================================================= //
+
 fn read_null_terminated_string<R: Read>(reader: &mut R) -> io::Result<String> {
     let mut bytes = Vec::<u8>::new();
     loop {
@@ -357,26 +520,58 @@ fn read_null_terminated_string<R: Read>(reader: &mut R) -> io::Result<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::CompressionType;
+    use super::Cabinet;
+    use std::io::{Cursor, Read};
 
     #[test]
-    fn compression_type_to_bitfield() {
-        assert_eq!(CompressionType::None.to_bitfield(), 0x0);
-        assert_eq!(CompressionType::MsZip.to_bitfield(), 0x1);
-        assert_eq!(CompressionType::Quantum(7, 20).to_bitfield(), 0x1472);
-        assert_eq!(CompressionType::Lzx(21).to_bitfield(), 0x1503);
+    fn read_uncompressed_cabinet_with_one_file() {
+        let binary: &[u8] = b"MSCF\0\0\0\0\x5c\0\0\0\0\0\0\0\
+            \x2c\0\0\0\0\0\0\0\x03\x01\x01\0\x01\0\0\0\x34\x12\0\0\
+            \x43\0\0\0\x01\0\0\0\
+            \x0e\0\0\0\0\0\0\0\0\0\x6c\x22\xe7\x59\x01\0hi.txt\0\
+            \0\0\0\0\x0e\0\x0e\0Hello, world!\n";
+        let mut cabinet = Cabinet::new(Cursor::new(binary)).unwrap();
+        assert_eq!(cabinet.cabinet_set_id(), 0x1234);
+        assert_eq!(cabinet.cabinet_set_index(), 0);
+        assert_eq!(cabinet.reserve_data(), &[]);
+        assert_eq!(cabinet.folder_entries().len(), 1);
+
+        let mut data = Vec::new();
+        cabinet.read_data(0).unwrap().read_to_end(&mut data).unwrap();
+        assert_eq!(data, b"Hello, world!\n");
+
+        let mut data = Vec::new();
+        cabinet.read_folder(0).unwrap().read_to_end(&mut data).unwrap();
+        assert_eq!(data, b"Hello, world!\n");
+
+        let mut data = Vec::new();
+        cabinet.read_file("hi.txt").unwrap().read_to_end(&mut data).unwrap();
+        assert_eq!(data, b"Hello, world!\n");
     }
 
+
     #[test]
-    fn compression_type_from_bitfield() {
-        assert_eq!(CompressionType::from_bitfield(0x0).unwrap(),
-                   CompressionType::None);
-        assert_eq!(CompressionType::from_bitfield(0x1).unwrap(),
-                   CompressionType::MsZip);
-        assert_eq!(CompressionType::from_bitfield(0x1472).unwrap(),
-                   CompressionType::Quantum(7, 20));
-        assert_eq!(CompressionType::from_bitfield(0x1503).unwrap(),
-                   CompressionType::Lzx(21));
+    fn read_uncompressed_cabinet_with_two_files() {
+        let binary: &[u8] =
+            b"MSCF\0\0\0\0\x80\0\0\0\0\0\0\0\
+            \x2c\0\0\0\0\0\0\0\x03\x01\x01\0\x02\0\0\0\x34\x12\0\0\
+            \x5b\0\0\0\x01\0\0\0\
+            \x0e\0\0\0\0\0\0\0\0\0\x6c\x22\xe7\x59\x01\0hi.txt\0\
+            \x0f\0\0\0\x0e\0\0\0\0\0\x6c\x22\xe7\x59\x01\0bye.txt\0\
+            \0\0\0\0\x1d\0\x1d\0Hello, world!\nSee you later!\n";
+        let mut cabinet = Cabinet::new(Cursor::new(binary)).unwrap();
+
+        let mut data = Vec::new();
+        cabinet.read_folder(0).unwrap().read_to_end(&mut data).unwrap();
+        assert_eq!(data, b"Hello, world!\nSee you later!\n");
+
+        let mut data = Vec::new();
+        cabinet.read_file("hi.txt").unwrap().read_to_end(&mut data).unwrap();
+        assert_eq!(data, b"Hello, world!\n");
+
+        let mut data = Vec::new();
+        cabinet.read_file("bye.txt").unwrap().read_to_end(&mut data).unwrap();
+        assert_eq!(data, b"See you later!\n");
     }
 }
 
