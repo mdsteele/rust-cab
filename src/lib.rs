@@ -4,12 +4,14 @@
 #![warn(missing_docs)]
 
 extern crate byteorder;
+extern crate flate2;
 
 #[macro_use]
 mod internal;
 
 use byteorder::{LittleEndian, ReadBytesExt};
 pub use internal::ctype::CompressionType;
+use internal::mszip::MsZipReader;
 use std::io::{self, Read, Seek, SeekFrom};
 
 // ========================================================================= //
@@ -205,7 +207,8 @@ impl<R: Read + Seek> Cabinet<R> {
                 FolderDecompressor::Uncompressed(data_reader)
             }
             CompressionType::MsZip => {
-                invalid_data!("MSZIP decompression is not yet supported.");
+                let mszip_reader = MsZipReader::new(data_reader)?;
+                FolderDecompressor::MsZip(mszip_reader)
             }
             CompressionType::Quantum(_, _) => {
                 invalid_data!("Quantum decompression is not yet supported.");
@@ -394,6 +397,7 @@ pub struct FolderReader<'a, R: 'a> {
 
 enum FolderDecompressor<'a, R: 'a> {
     Uncompressed(DataReader<'a, R>),
+    MsZip(MsZipReader<DataReader<'a, R>>),
     // TODO: add options for other compression types
 }
 
@@ -402,6 +406,9 @@ impl<'a, R: Read + Seek> Read for FolderReader<'a, R> {
         match self.decompressor {
             FolderDecompressor::Uncompressed(ref mut data_reader) => {
                 data_reader.read(buf)
+            }
+            FolderDecompressor::MsZip(ref mut mszip_reader) => {
+                mszip_reader.read(buf)
             }
         }
     }
@@ -412,6 +419,9 @@ impl<'a, R: Read + Seek> Seek for FolderReader<'a, R> {
         match self.decompressor {
             FolderDecompressor::Uncompressed(ref mut data_reader) => {
                 data_reader.seek(pos)
+            }
+            FolderDecompressor::MsZip(ref mut mszip_reader) => {
+                mszip_reader.seek(pos)
             }
         }
     }
@@ -525,11 +535,12 @@ mod tests {
 
     #[test]
     fn read_uncompressed_cabinet_with_one_file() {
-        let binary: &[u8] = b"MSCF\0\0\0\0\x5c\0\0\0\0\0\0\0\
+        let binary: &[u8] = b"MSCF\0\0\0\0\x59\0\0\0\0\0\0\0\
             \x2c\0\0\0\0\0\0\0\x03\x01\x01\0\x01\0\0\0\x34\x12\0\0\
             \x43\0\0\0\x01\0\0\0\
             \x0e\0\0\0\0\0\0\0\0\0\x6c\x22\xe7\x59\x01\0hi.txt\0\
             \0\0\0\0\x0e\0\x0e\0Hello, world!\n";
+        assert_eq!(binary.len(), 0x59);
         let mut cabinet = Cabinet::new(Cursor::new(binary)).unwrap();
         assert_eq!(cabinet.cabinet_set_id(), 0x1234);
         assert_eq!(cabinet.cabinet_set_index(), 0);
@@ -549,7 +560,6 @@ mod tests {
         assert_eq!(data, b"Hello, world!\n");
     }
 
-
     #[test]
     fn read_uncompressed_cabinet_with_two_files() {
         let binary: &[u8] =
@@ -559,6 +569,64 @@ mod tests {
             \x0e\0\0\0\0\0\0\0\0\0\x6c\x22\xe7\x59\x01\0hi.txt\0\
             \x0f\0\0\0\x0e\0\0\0\0\0\x6c\x22\xe7\x59\x01\0bye.txt\0\
             \0\0\0\0\x1d\0\x1d\0Hello, world!\nSee you later!\n";
+        assert_eq!(binary.len(), 0x80);
+        let mut cabinet = Cabinet::new(Cursor::new(binary)).unwrap();
+
+        let mut data = Vec::new();
+        cabinet.read_folder(0).unwrap().read_to_end(&mut data).unwrap();
+        assert_eq!(data, b"Hello, world!\nSee you later!\n");
+
+        let mut data = Vec::new();
+        cabinet.read_file("hi.txt").unwrap().read_to_end(&mut data).unwrap();
+        assert_eq!(data, b"Hello, world!\n");
+
+        let mut data = Vec::new();
+        cabinet.read_file("bye.txt").unwrap().read_to_end(&mut data).unwrap();
+        assert_eq!(data, b"See you later!\n");
+    }
+
+    #[test]
+    fn read_mszip_cabinet_with_one_file() {
+        let binary: &[u8] =
+            b"MSCF\0\0\0\0\x61\0\0\0\0\0\0\0\
+            \x2c\0\0\0\0\0\0\0\x03\x01\x01\0\x01\0\0\0\x34\x12\0\0\
+            \x43\0\0\0\x01\0\x01\0\
+            \x0e\0\0\0\0\0\0\0\0\0\x6c\x22\xe7\x59\x01\0hi.txt\0\
+            \0\0\0\0\x16\0\x0e\0\
+            CK\xf3H\xcd\xc9\xc9\xd7Q(\xcf/\xcaIQ\xe4\x02\x00$\xf2\x04\x94";
+        assert_eq!(binary.len(), 0x61);
+        let mut cabinet = Cabinet::new(Cursor::new(binary)).unwrap();
+        assert_eq!(cabinet.cabinet_set_id(), 0x1234);
+        assert_eq!(cabinet.cabinet_set_index(), 0);
+        assert_eq!(cabinet.reserve_data(), &[]);
+        assert_eq!(cabinet.folder_entries().len(), 1);
+
+        let mut data = Vec::new();
+        cabinet.read_data(0).unwrap().read_to_end(&mut data).unwrap();
+        assert_eq!(data,
+                   b"CK\xf3H\xcd\xc9\xc9\xd7Q(\xcf/\xcaIQ\
+                     \xe4\x02\x00$\xf2\x04\x94");
+
+        let mut data = Vec::new();
+        cabinet.read_folder(0).unwrap().read_to_end(&mut data).unwrap();
+        assert_eq!(data, b"Hello, world!\n");
+
+        let mut data = Vec::new();
+        cabinet.read_file("hi.txt").unwrap().read_to_end(&mut data).unwrap();
+        assert_eq!(data, b"Hello, world!\n");
+    }
+
+    #[test]
+    fn read_mszip_cabinet_with_two_files() {
+        let binary: &[u8] =
+            b"MSCF\0\0\0\0\x88\0\0\0\0\0\0\0\
+            \x2c\0\0\0\0\0\0\0\x03\x01\x01\0\x02\0\0\0\x34\x12\0\0\
+            \x5b\0\0\0\x01\0\x01\0\
+            \x0e\0\0\0\0\0\0\0\0\0\x6c\x22\xe7\x59\x01\0hi.txt\0\
+            \x0f\0\0\0\x0e\0\0\0\0\0\x6c\x22\xe7\x59\x01\0bye.txt\0\
+            \0\0\0\0\x25\0\x1d\0CK\xf3H\xcd\xc9\xc9\xd7Q(\xcf/\xcaIQ\xe4\
+            \nNMU\xa8\xcc/U\xc8I,I-R\xe4\x02\x00\x93\xfc\t\x91";
+        assert_eq!(binary.len(), 0x88);
         let mut cabinet = Cabinet::new(Cursor::new(binary)).unwrap();
 
         let mut data = Vec::new();
