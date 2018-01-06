@@ -1,6 +1,8 @@
 use byteorder::{LittleEndian, WriteBytesExt};
+use chrono::{Local, NaiveDateTime};
 use internal::consts;
 use internal::ctype::CompressionType;
+use internal::datetime::datetime_to_bits;
 use internal::mszip::MsZipWriter;
 use std::io::{self, Seek, SeekFrom, Write};
 use std::mem;
@@ -17,7 +19,7 @@ const MAX_UNCOMPRESSED_BYTES_PER_BLOCK: u16 = 0x8000;
 pub struct FileBuilder {
     name: String,
     attributes: u16,
-    // TODO: timestamp
+    datetime: NaiveDateTime,
     entry_offset: u64,
     uncompressed_size: u32,
     offset_within_folder: u32,
@@ -28,10 +30,26 @@ impl FileBuilder {
         FileBuilder {
             name: name,
             attributes: 0,
+            datetime: Local::now().naive_local(),
             entry_offset: 0, // filled in later by CabinetWriter
             uncompressed_size: 0, // filled in later by FileWriter
             offset_within_folder: 0, // filled in later by CabinetWriter
         }
+    }
+
+    /// Sets the datetime for this file.  According to the CAB spec, this "is
+    /// typically considered the 'last modified' time in local time, but the
+    /// actual definition is application-defined".
+    ///
+    /// The CAB file format only supports storing datetimes with years from
+    /// 1980 to 2107 (inclusive), with a resolution of two seconds.  If the
+    /// given datetime is outside this range/resolution, it will be
+    /// clamped/rounded to the nearest legal value.
+    ///
+    /// By default, the datetime of a new `FileBuilder` is the current local
+    /// date/time.
+    pub fn set_datetime(&mut self, datetime: NaiveDateTime) {
+        self.datetime = datetime;
     }
 
     /// Sets whether this file has the "read-only" attribute set.
@@ -269,8 +287,9 @@ impl<W: Write + Seek> CabinetWriter<W> {
                 writer.write_u32::<LittleEndian>(0)?; // size, filled later
                 writer.write_u32::<LittleEndian>(0)?; // offset, filled later
                 writer.write_u16::<LittleEndian>(folder_index as u16)?;
-                writer.write_u16::<LittleEndian>(0)?; // date
-                writer.write_u16::<LittleEndian>(0)?; // time
+                let (date, time) = datetime_to_bits(file.datetime);
+                writer.write_u16::<LittleEndian>(date)?;
+                writer.write_u16::<LittleEndian>(time)?;
                 writer.write_u16::<LittleEndian>(file.attributes)?;
                 writer.write_all(file.name.as_bytes())?;
                 writer.write_u8(0)?;
@@ -627,15 +646,18 @@ impl<W: Write + Seek> Write for DataWriter<W> {
 #[cfg(test)]
 mod tests {
     use super::CabinetBuilder;
+    use chrono::NaiveDate;
     use internal::ctype::CompressionType;
     use std::io::{Cursor, Write};
 
     #[test]
     fn write_uncompressed_cabinet_with_one_file() {
         let mut builder = CabinetBuilder::new();
+        let dt = NaiveDate::from_ymd(1997, 3, 12).and_hms(11, 13, 52);
         builder
             .add_folder(CompressionType::None)
-            .add_file("hi.txt".to_string());
+            .add_file("hi.txt".to_string())
+            .set_datetime(dt);
         let mut cab_writer = builder.build(Cursor::new(Vec::new())).unwrap();
         while let Some(mut file_writer) = cab_writer.next_file().unwrap() {
             file_writer.write_all(b"Hello, world!\n").unwrap();
@@ -644,7 +666,7 @@ mod tests {
         let expected: &[u8] = b"MSCF\0\0\0\0\x59\0\0\0\0\0\0\0\
             \x2c\0\0\0\0\0\0\0\x03\x01\x01\0\x01\0\0\0\0\0\0\0\
             \x43\0\0\0\x01\0\0\0\
-            \x0e\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0hi.txt\0\
+            \x0e\0\0\0\0\0\0\0\0\0\x6c\x22\xba\x59\0\0hi.txt\0\
             \0\0\0\0\x0e\0\x0e\0Hello, world!\n";
         assert_eq!(output.as_slice(), expected);
     }
@@ -652,10 +674,11 @@ mod tests {
     #[test]
     fn write_uncompressed_cabinet_with_two_files() {
         let mut builder = CabinetBuilder::new();
+        let dt = NaiveDate::from_ymd(2018, 1, 6).and_hms(15, 19, 42);
         {
             let folder_builder = builder.add_folder(CompressionType::None);
-            folder_builder.add_file("hi.txt".to_string());
-            folder_builder.add_file("bye.txt".to_string());
+            folder_builder.add_file("hi.txt".to_string()).set_datetime(dt);
+            folder_builder.add_file("bye.txt".to_string()).set_datetime(dt);
         }
         let mut cab_writer = builder.build(Cursor::new(Vec::new())).unwrap();
         while let Some(mut file_writer) = cab_writer.next_file().unwrap() {
@@ -671,8 +694,8 @@ mod tests {
             b"MSCF\0\0\0\0\x80\0\0\0\0\0\0\0\
             \x2c\0\0\0\0\0\0\0\x03\x01\x01\0\x02\0\0\0\0\0\0\0\
             \x5b\0\0\0\x01\0\0\0\
-            \x0e\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0hi.txt\0\
-            \x0f\0\0\0\x0e\0\0\0\0\0\0\0\0\0\0\0bye.txt\0\
+            \x0e\0\0\0\0\0\0\0\0\0\x26\x4c\x75\x7a\0\0hi.txt\0\
+            \x0f\0\0\0\x0e\0\0\0\0\0\x26\x4c\x75\x7a\0\0bye.txt\0\
             \0\0\0\0\x1d\0\x1d\0Hello, world!\nSee you later!\n";
         assert_eq!(output.as_slice(), expected);
     }

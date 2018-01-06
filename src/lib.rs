@@ -4,15 +4,18 @@
 #![warn(missing_docs)]
 
 extern crate byteorder;
+extern crate chrono;
 extern crate flate2;
 
 #[macro_use]
 mod internal;
 
 use byteorder::{LittleEndian, ReadBytesExt};
-pub use internal::builder::{CabinetBuilder, CabinetWriter, FileWriter};
+pub use internal::builder::{CabinetBuilder, CabinetWriter, FileBuilder,
+                            FileWriter, FolderBuilder};
 use internal::consts;
 pub use internal::ctype::CompressionType;
+use internal::datetime::datetime_from_bits;
 use internal::mszip::MsZipReader;
 use std::io::{self, Read, Seek, SeekFrom};
 
@@ -110,12 +113,21 @@ impl<R: Read + Seek> Cabinet<R> {
             if folder_index >= folders.len() {
                 invalid_data!("File entry folder index out of bounds");
             }
-            let _date = reader.read_u16::<LittleEndian>()?;
-            let _time = reader.read_u16::<LittleEndian>()?;
+            let date = reader.read_u16::<LittleEndian>()?;
+            let time = reader.read_u16::<LittleEndian>()?;
+            let datetime = match datetime_from_bits(date, time) {
+                Some(dt) => dt,
+                None => {
+                    invalid_data!("Invalid date/time values ({} {})",
+                                  date,
+                                  time)
+                }
+            };
             let attributes = reader.read_u16::<LittleEndian>()?;
             let name = read_null_terminated_string(&mut reader)?;
             let entry = FileEntry {
                 name: name,
+                datetime: datetime,
                 uncompressed_size: uncompressed_size,
                 uncompressed_offset: uncompressed_offset,
                 attributes: attributes,
@@ -148,6 +160,18 @@ impl<R: Read + Seek> Cabinet<R> {
         FolderEntries { iter: self.folders.iter() }
     }
 
+    /// Returns the entry for the file with the given name, if any..
+    pub fn get_file_entry(&self, name: &str) -> Option<&FileEntry> {
+        for folder in self.folder_entries() {
+            for file in folder.file_entries() {
+                if file.name() == name {
+                    return Some(file);
+                }
+            }
+        }
+        None
+    }
+
     /// Returns a reader over the decompressed data for the file in the cabinet
     /// with the given name.
     pub fn read_file(&mut self, name: &str) -> io::Result<FileReader<R>> {
@@ -178,8 +202,7 @@ impl<R: Read + Seek> Cabinet<R> {
     }
 
     /// Returns a reader over the decompressed data in the specified folder.
-    pub fn read_folder(&mut self, index: usize)
-                       -> io::Result<FolderReader<R>> {
+    fn read_folder(&mut self, index: usize) -> io::Result<FolderReader<R>> {
         if index >= self.folders.len() {
             invalid_input!("Folder index {} is out of range (cabinet has {} \
                             folders)",
@@ -207,7 +230,7 @@ impl<R: Read + Seek> Cabinet<R> {
     }
 
     /// Returns a reader over the compressed data in the specified folder.
-    pub fn read_data(&mut self, index: usize) -> io::Result<DataReader<R>> {
+    fn read_data(&mut self, index: usize) -> io::Result<DataReader<R>> {
         if index >= self.folders.len() {
             invalid_input!("Folder index {} is out of range (cabinet has {} \
                             folders)",
@@ -306,6 +329,7 @@ impl<'a> ExactSizeIterator for FileEntries<'a> {}
 /// Metadata about one file stored in a cabinet.
 pub struct FileEntry {
     name: String,
+    datetime: chrono::NaiveDateTime,
     uncompressed_size: u32,
     uncompressed_offset: u32,
     attributes: u16,
@@ -314,6 +338,11 @@ pub struct FileEntry {
 impl FileEntry {
     /// Returns the name of file.
     pub fn name(&self) -> &str { &self.name }
+
+    /// Returns the datetime for this file.  According to the CAB spec, this
+    /// "is typically considered the 'last modified' time in local time, but
+    /// the actual definition is application-defined".
+    pub fn datetime(&self) -> chrono::NaiveDateTime { self.datetime }
 
     /// Returns the total size of the file when decompressed, in bytes.
     pub fn uncompressed_size(&self) -> u32 { self.uncompressed_size }
@@ -378,7 +407,7 @@ impl<'a, R: Read + Seek> Seek for FileReader<'a, R> {
 // ========================================================================= //
 
 /// A reader for reading decompressed data from a cabinet folder.
-pub struct FolderReader<'a, R: 'a> {
+struct FolderReader<'a, R: 'a> {
     decompressor: FolderDecompressor<'a, R>,
 }
 
@@ -417,7 +446,7 @@ impl<'a, R: Read + Seek> Seek for FolderReader<'a, R> {
 // ========================================================================= //
 
 /// A reader for reading raw, compressed data from a cabinet folder.
-pub struct DataReader<'a, R: 'a> {
+struct DataReader<'a, R: 'a> {
     reader: &'a mut R,
     data_blocks: Vec<(u64, u64)>,
     current_offset: u64,
@@ -518,6 +547,7 @@ fn read_null_terminated_string<R: Read>(reader: &mut R) -> io::Result<String> {
 #[cfg(test)]
 mod tests {
     use super::Cabinet;
+    use chrono::{Datelike, Timelike};
     use std::io::{Cursor, Read};
 
     #[test]
@@ -525,7 +555,7 @@ mod tests {
         let binary: &[u8] = b"MSCF\0\0\0\0\x59\0\0\0\0\0\0\0\
             \x2c\0\0\0\0\0\0\0\x03\x01\x01\0\x01\0\0\0\x34\x12\0\0\
             \x43\0\0\0\x01\0\0\0\
-            \x0e\0\0\0\0\0\0\0\0\0\x6c\x22\xe7\x59\x01\0hi.txt\0\
+            \x0e\0\0\0\0\0\0\0\0\0\x6c\x22\xba\x59\x01\0hi.txt\0\
             \0\0\0\0\x0e\0\x0e\0Hello, world!\n";
         assert_eq!(binary.len(), 0x59);
         let mut cabinet = Cabinet::new(Cursor::new(binary)).unwrap();
@@ -533,6 +563,15 @@ mod tests {
         assert_eq!(cabinet.cabinet_set_index(), 0);
         assert_eq!(cabinet.reserve_data(), &[]);
         assert_eq!(cabinet.folder_entries().len(), 1);
+        {
+            let file = cabinet.get_file_entry("hi.txt").unwrap();
+            assert_eq!(file.datetime().year(), 1997);
+            assert_eq!(file.datetime().month(), 3);
+            assert_eq!(file.datetime().day(), 12);
+            assert_eq!(file.datetime().hour(), 11);
+            assert_eq!(file.datetime().minute(), 13);
+            assert_eq!(file.datetime().second(), 52);
+        }
 
         let mut data = Vec::new();
         cabinet.read_data(0).unwrap().read_to_end(&mut data).unwrap();

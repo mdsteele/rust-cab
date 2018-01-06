@@ -10,4 +10,5 @@ readme = "README.md"
 
 [dependencies]
 byteorder = "1"
+chrono = "0.4"
 flate2 = "1"
