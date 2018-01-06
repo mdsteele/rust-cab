@@ -10,30 +10,15 @@ extern crate flate2;
 mod internal;
 
 use byteorder::{LittleEndian, ReadBytesExt};
+pub use internal::builder::{CabinetBuilder, CabinetWriter, FileWriter};
+use internal::consts;
 pub use internal::ctype::CompressionType;
 use internal::mszip::MsZipReader;
 use std::io::{self, Read, Seek, SeekFrom};
 
 // ========================================================================= //
 
-const FILE_SIGNATURE: u32 = 0x4643534d; // "MSCF" stored little-endian
-
-const VERSION_MAJOR: u8 = 1;
-const VERSION_MINOR: u8 = 3;
-
-const FLAG_PREV_CABINET: u16 = 0x1;
-const FLAG_NEXT_CABINET: u16 = 0x2;
-const FLAG_RESERVE_PRESENT: u16 = 0x4;
-
-// File attributes:
-const ATTR_READ_ONLY: u16 = 0x01;
-const ATTR_HIDDEN: u16 = 0x02;
-const ATTR_SYSTEM: u16 = 0x04;
-
-// ========================================================================= //
-
 /// A structure for reading a cabinet file.
-#[allow(dead_code)]
 pub struct Cabinet<R> {
     reader: R,
     cabinet_set_id: u16,
@@ -47,7 +32,7 @@ impl<R: Read + Seek> Cabinet<R> {
     /// Open an existing cabinet file.
     pub fn new(mut reader: R) -> io::Result<Cabinet<R>> {
         let signature = reader.read_u32::<LittleEndian>()?;
-        if signature != FILE_SIGNATURE {
+        if signature != consts::FILE_SIGNATURE {
             invalid_data!("Not a cabinet file (invalid file signature)");
         }
         let _reserved1 = reader.read_u32::<LittleEndian>()?;
@@ -57,8 +42,9 @@ impl<R: Read + Seek> Cabinet<R> {
         let _reserved3 = reader.read_u32::<LittleEndian>()?;
         let minor_version = reader.read_u8()?;
         let major_version = reader.read_u8()?;
-        if major_version > VERSION_MAJOR ||
-            major_version == VERSION_MAJOR && minor_version > VERSION_MINOR
+        if major_version > consts::VERSION_MAJOR ||
+            major_version == consts::VERSION_MAJOR &&
+                minor_version > consts::VERSION_MINOR
         {
             invalid_data!("Version {}.{} cabinet files are not supported",
                           major_version,
@@ -72,7 +58,7 @@ impl<R: Read + Seek> Cabinet<R> {
         let mut header_reserve_size = 0u16;
         let mut folder_reserve_size = 0u8;
         let mut data_reserve_size = 0u8;
-        if (flags & FLAG_RESERVE_PRESENT) != 0 {
+        if (flags & consts::FLAG_RESERVE_PRESENT) != 0 {
             header_reserve_size = reader.read_u16::<LittleEndian>()?;
             folder_reserve_size = reader.read_u8()?;
             data_reserve_size = reader.read_u8()?;
@@ -81,14 +67,14 @@ impl<R: Read + Seek> Cabinet<R> {
         if header_reserve_size > 0 {
             reader.read_exact(&mut header_reserve_data)?;
         }
-        let _prev_cabinet = if (flags & FLAG_PREV_CABINET) != 0 {
+        let _prev_cabinet = if (flags & consts::FLAG_PREV_CABINET) != 0 {
             let cabinet_name = read_null_terminated_string(&mut reader)?;
             let disk_name = read_null_terminated_string(&mut reader)?;
             Some((cabinet_name, disk_name))
         } else {
             None
         };
-        let _next_cabinet = if (flags & FLAG_NEXT_CABINET) != 0 {
+        let _next_cabinet = if (flags & consts::FLAG_NEXT_CABINET) != 0 {
             let cabinet_name = read_null_terminated_string(&mut reader)?;
             let disk_name = read_null_terminated_string(&mut reader)?;
             Some((cabinet_name, disk_name))
@@ -273,7 +259,6 @@ impl<'a> ExactSizeIterator for FolderEntries<'a> {}
 // ========================================================================= //
 
 /// Metadata about one folder in a cabinet.
-#[allow(dead_code)]
 pub struct FolderEntry {
     first_data_block_offset: u32,
     num_data_blocks: u16,
@@ -335,15 +320,17 @@ impl FileEntry {
 
     /// Returns true if this file has the "read-only" attribute set.
     pub fn is_read_only(&self) -> bool {
-        (self.attributes & ATTR_READ_ONLY) != 0
+        (self.attributes & consts::ATTR_READ_ONLY) != 0
     }
 
     /// Returns true if this file has the "hidden" attribute set.
-    pub fn is_hidden(&self) -> bool { (self.attributes & ATTR_HIDDEN) != 0 }
+    pub fn is_hidden(&self) -> bool {
+        (self.attributes & consts::ATTR_HIDDEN) != 0
+    }
 
     /// Returns true if this file has the "system file" attribute set.
     pub fn is_system_file(&self) -> bool {
-        (self.attributes & ATTR_SYSTEM) != 0
+        (self.attributes & consts::ATTR_SYSTEM) != 0
     }
 }
 

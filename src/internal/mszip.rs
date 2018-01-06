@@ -1,6 +1,8 @@
-use byteorder::{LittleEndian, ReadBytesExt};
+use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
+use flate2::Compression;
 use flate2::read::DeflateDecoder;
-use std::io::{self, Read, Seek, SeekFrom};
+use flate2::write::DeflateEncoder;
+use std::io::{self, Read, Seek, SeekFrom, Write};
 
 // ========================================================================= //
 
@@ -115,10 +117,37 @@ impl<R: Read + Seek> Seek for MsZipReader<R> {
 
 // ========================================================================= //
 
+pub struct MsZipWriter<W: Write> {
+    encoder: DeflateEncoder<W>,
+}
+
+impl<W: Write> MsZipWriter<W> {
+    pub fn new(mut writer: W) -> io::Result<MsZipWriter<W>> {
+        writer.write_u16::<LittleEndian>(MSZIP_SIGNATURE)?;
+        Ok(MsZipWriter {
+               encoder: DeflateEncoder::new(writer, Compression::best()),
+           })
+    }
+
+    pub fn get_mut(&mut self) -> &mut W { self.encoder.get_mut() }
+
+    pub fn finish(self) -> io::Result<W> { self.encoder.finish() }
+}
+
+impl<W: Write> Write for MsZipWriter<W> {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.encoder.write(buf)
+    }
+
+    fn flush(&mut self) -> io::Result<()> { self.encoder.flush() }
+}
+
+// ========================================================================= //
+
 #[cfg(test)]
 mod tests {
-    use super::MsZipReader;
-    use std::io::{Cursor, Read, Seek, SeekFrom};
+    use super::{MsZipReader, MsZipWriter};
+    use std::io::{Cursor, Read, Seek, SeekFrom, Write};
 
     #[test]
     fn read_compressed_data() {
@@ -130,6 +159,7 @@ mod tests {
         let expected: &[u8] =
             b"Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed \
               do eiusmod tempor incididunt ut labore et dolore magna aliqua.";
+        assert!(input.len() < expected.len());
         let mut mszip_reader = MsZipReader::new(input).unwrap();
         let mut output = Vec::new();
         mszip_reader.read_to_end(&mut output).unwrap();
@@ -179,6 +209,24 @@ mod tests {
         let mut output = Vec::new();
         mszip_reader.read_to_end(&mut output).unwrap();
         assert!(output.is_empty());
+    }
+
+    #[test]
+    fn compression_round_trip() {
+        let original: &[u8] =
+            b"Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed \
+              do eiusmod tempor incididunt ut labore et dolore magna aliqua.";
+        let mut compressed = Vec::new();
+        {
+            let mut mszip_writer = MsZipWriter::new(&mut compressed).unwrap();
+            mszip_writer.write_all(original).unwrap();
+        }
+        assert!(compressed.len() < original.len());
+        let mut output = Vec::new();
+        let mut mszip_reader = MsZipReader::new(compressed.as_slice())
+            .unwrap();
+        mszip_reader.read_to_end(&mut output).unwrap();
+        assert_eq!(output, original);
     }
 }
 

@@ -61,7 +61,6 @@ impl CompressionType {
         }
     }
 
-    #[allow(dead_code)]
     pub(crate) fn to_bitfield(&self) -> u16 {
         match *self {
             CompressionType::None => CTYPE_NONE,
