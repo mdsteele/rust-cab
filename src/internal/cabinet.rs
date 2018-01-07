@@ -232,8 +232,8 @@ impl<R: Read + Seek> Cabinet<R> {
         let mut offset = self.folders[index].first_data_block_offset as u64;
         for _ in 0..num_data_blocks {
             self.reader.seek(SeekFrom::Start(offset + 4))?;
-            let compressed_size =
-                self.reader.read_u16::<LittleEndian>().unwrap() as u64;
+            let compressed_size = self.reader.read_u16::<LittleEndian>()? as
+                u64;
             cumulative_size += compressed_size;
             offset += 8 + self.data_reserve_size as u64;
             data_blocks.push((cumulative_size, offset));
@@ -544,7 +544,7 @@ mod tests {
             \x2c\0\0\0\0\0\0\0\x03\x01\x01\0\x01\0\0\0\x34\x12\0\0\
             \x43\0\0\0\x01\0\0\0\
             \x0e\0\0\0\0\0\0\0\0\0\x6c\x22\xba\x59\x01\0hi.txt\0\
-            \0\0\0\0\x0e\0\x0e\0Hello, world!\n";
+            \x67\x31\x2e\x7f\x0e\0\x0e\0Hello, world!\n";
         assert_eq!(binary.len(), 0x59);
         let mut cabinet = Cabinet::new(Cursor::new(binary)).unwrap();
         assert_eq!(cabinet.cabinet_set_id(), 0x1234);

@@ -1,5 +1,6 @@
 use byteorder::{LittleEndian, WriteBytesExt};
 use chrono::{Local, NaiveDateTime};
+use internal::checksum::Checksum;
 use internal::consts;
 use internal::ctype::CompressionType;
 use internal::datetime::datetime_to_bits;
@@ -588,6 +589,7 @@ struct DataWriter<W> {
     writer: W,
     block_offset: Option<u64>,
     block_size: u64,
+    block_checksum: Checksum,
 }
 
 impl<W: Write + Seek> DataWriter<W> {
@@ -596,6 +598,7 @@ impl<W: Write + Seek> DataWriter<W> {
             writer: writer,
             block_offset: None,
             block_size: 0,
+            block_checksum: Checksum::new(),
         }
     }
 
@@ -608,12 +611,16 @@ impl<W: Write + Seek> DataWriter<W> {
                               u16::MAX);
             }
             let new_offset = block_offset + 8 + self.block_size;
-            self.writer.seek(SeekFrom::Start(block_offset + 4))?;
-            // TODO: fill in checksum
+            let checksum_value = self.block_checksum.value() ^
+                ((self.block_size as u32) |
+                    ((uncompressed_size as u32) << 16));
+            self.writer.seek(SeekFrom::Start(block_offset))?;
+            self.writer.write_u32::<LittleEndian>(checksum_value)?;
             self.writer.write_u16::<LittleEndian>(self.block_size as u16)?;
             self.writer.write_u16::<LittleEndian>(uncompressed_size)?;
             self.writer.seek(SeekFrom::Start(new_offset))?;
             self.block_size = 0;
+            self.block_checksum = Checksum::new();
         } else {
             debug_assert_eq!(self.block_size, 0);
             debug_assert_eq!(uncompressed_size, 0);
@@ -635,6 +642,7 @@ impl<W: Write + Seek> Write for DataWriter<W> {
         }
         let bytes_written = self.writer.write(buf)?;
         self.block_size += bytes_written as u64;
+        self.block_checksum.append(&buf[0..bytes_written]);
         Ok(bytes_written)
     }
 
@@ -667,7 +675,7 @@ mod tests {
             \x2c\0\0\0\0\0\0\0\x03\x01\x01\0\x01\0\0\0\0\0\0\0\
             \x43\0\0\0\x01\0\0\0\
             \x0e\0\0\0\0\0\0\0\0\0\x6c\x22\xba\x59\0\0hi.txt\0\
-            \0\0\0\0\x0e\0\x0e\0Hello, world!\n";
+            \x67\x31\x2e\x7f\x0e\0\x0e\0Hello, world!\n";
         assert_eq!(output.as_slice(), expected);
     }
 
@@ -696,7 +704,7 @@ mod tests {
             \x5b\0\0\0\x01\0\0\0\
             \x0e\0\0\0\0\0\0\0\0\0\x26\x4c\x75\x7a\0\0hi.txt\0\
             \x0f\0\0\0\x0e\0\0\0\0\0\x26\x4c\x75\x7a\0\0bye.txt\0\
-            \0\0\0\0\x1d\0\x1d\0Hello, world!\nSee you later!\n";
+            \x1a\x54\x09\x35\x1d\0\x1d\0Hello, world!\nSee you later!\n";
         assert_eq!(output.as_slice(), expected);
     }
 }
