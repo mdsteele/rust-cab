@@ -12,3 +12,6 @@ readme = "README.md"
 byteorder = "1"
 chrono = "0.4"
 flate2 = "1"
+
+[dev-dependencies]
+lipsum = "0.4"

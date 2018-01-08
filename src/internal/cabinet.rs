@@ -600,6 +600,33 @@ mod tests {
     }
 
     #[test]
+    fn read_uncompressed_cabinet_with_two_data_blocks() {
+        let binary: &[u8] = b"MSCF\0\0\0\0\x61\0\0\0\0\0\0\0\
+            \x2c\0\0\0\0\0\0\0\x03\x01\x01\0\x01\0\0\0\x34\x12\0\0\
+            \x43\0\0\0\x02\0\0\0\
+            \x0e\0\0\0\0\0\0\0\0\0\x6c\x22\xba\x59\x01\0hi.txt\0\
+            \0\0\0\0\x06\0\x06\0Hello,\
+            \0\0\0\0\x08\0\x08\0 world!\n";
+        assert_eq!(binary.len(), 0x61);
+        let mut cabinet = Cabinet::new(Cursor::new(binary)).unwrap();
+        assert_eq!(cabinet.folder_entries().len(), 1);
+        assert_eq!(cabinet.folder_entries().nth(0).unwrap().num_data_blocks(),
+                   2);
+
+        let mut data = Vec::new();
+        cabinet.read_data(0).unwrap().read_to_end(&mut data).unwrap();
+        assert_eq!(data, b"Hello, world!\n");
+
+        let mut data = Vec::new();
+        cabinet.read_folder(0).unwrap().read_to_end(&mut data).unwrap();
+        assert_eq!(data, b"Hello, world!\n");
+
+        let mut data = Vec::new();
+        cabinet.read_file("hi.txt").unwrap().read_to_end(&mut data).unwrap();
+        assert_eq!(data, b"Hello, world!\n");
+    }
+
+    #[test]
     fn read_mszip_cabinet_with_one_file() {
         let binary: &[u8] =
             b"MSCF\0\0\0\0\x61\0\0\0\0\0\0\0\

@@ -445,7 +445,7 @@ impl<'a, W: Write + Seek> Write for FileWriter<'a, W> {
         let remaining = u32::MAX - self.file_builder.uncompressed_size;
         let max_bytes = (buf.len() as u64).min(remaining as u64) as usize;
         let bytes_written = self.writer.write(&buf[0..max_bytes])?;
-        self.file_builder.uncompressed_size = bytes_written as u32;
+        self.file_builder.uncompressed_size += bytes_written as u32;
         Ok(bytes_written)
     }
 
@@ -561,6 +561,7 @@ impl<W: Write + Seek> Write for FolderWriter<W> {
                     data_writer
                 }
                 FolderCompressor::MsZip(ref mut mszip_writer) => {
+                    mszip_writer.flush()?;
                     mszip_writer.get_mut()
                 }
             };
