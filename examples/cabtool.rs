@@ -1,6 +1,7 @@
 extern crate cab;
 extern crate clap;
 
+use cab::{Cabinet, CompressionType, FileEntry, FolderEntry};
 use clap::{App, Arg, SubCommand};
 use std::fs::File;
 use std::io;
@@ -45,12 +46,18 @@ fn main() {
 
 // ========================================================================= //
 
-fn list_file(folder_index: usize, folder: &cab::FolderEntry,
-             file: &cab::FileEntry, long: bool) {
+fn list_file(folder_index: usize, folder: &FolderEntry, file: &FileEntry,
+             long: bool) {
     if !long {
         println!("{}", file.name());
         return;
     }
+    let ctype = match folder.compression_type() {
+        CompressionType::None => "None".to_string(),
+        CompressionType::MsZip => "MsZip".to_string(),
+        CompressionType::Quantum(v, m) => format!("Q{}/{}", v, m),
+        CompressionType::Lzx(w) => format!("Lzx{}", w),
+    };
     let file_size = if file.uncompressed_size() >= 100_000_000 {
         format!("{} MB", file.uncompressed_size() / (1 << 20))
     } else if file.uncompressed_size() >= 1_000_000 {
@@ -58,19 +65,22 @@ fn list_file(folder_index: usize, folder: &cab::FolderEntry,
     } else {
         format!("{} B ", file.uncompressed_size())
     };
-    println!("{}{}{} {:>2} {:?} {:>10} {} {}",
+    println!("{}{}{}{}{}{} {:>2} {:<5} {:>10} {} {}",
              if file.is_read_only() { 'R' } else { '-' },
              if file.is_hidden() { 'H' } else { '-' },
-             if file.is_system_file() { 'S' } else { '-' },
+             if file.is_system() { 'S' } else { '-' },
+             if file.is_archive() { 'A' } else { '-' },
+             if file.is_exec() { 'E' } else { '-' },
+             if file.is_name_utf() { 'U' } else { '-' },
              folder_index,
-             folder.compression_type(),
+             ctype,
              file_size,
              file.datetime(),
              file.name());
 }
 
-fn open_cab(path: &str) -> io::Result<cab::Cabinet<File>> {
-    cab::Cabinet::new(File::open(path)?)
+fn open_cab(path: &str) -> io::Result<Cabinet<File>> {
+    Cabinet::new(File::open(path)?)
 }
 
 // ========================================================================= //

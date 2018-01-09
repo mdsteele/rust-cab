@@ -7,6 +7,7 @@ pub const VERSION_MINOR: u8 = 3;
 
 pub const MAX_HEADER_RESERVE_SIZE: usize = 60_000;
 pub const MAX_FOLDER_RESERVE_SIZE: usize = 255;
+pub const MAX_STRING_SIZE: usize = 255;
 
 // Header flags:
 pub const FLAG_PREV_CABINET: u16 = 0x1;
@@ -17,6 +18,8 @@ pub const FLAG_RESERVE_PRESENT: u16 = 0x4;
 pub const ATTR_READ_ONLY: u16 = 0x01;
 pub const ATTR_HIDDEN: u16 = 0x02;
 pub const ATTR_SYSTEM: u16 = 0x04;
-// TODO: Also support ARCH, EXEC, and NAME_IS_UTF attributes.
+pub const ATTR_ARCH: u16 = 0x20;
+pub const ATTR_EXEC: u16 = 0x40;
+pub const ATTR_NAME_IS_UTF: u16 = 0x80;
 
 // ========================================================================= //

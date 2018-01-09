@@ -28,14 +28,17 @@ pub struct FileBuilder {
 
 impl FileBuilder {
     fn new(name: String) -> FileBuilder {
-        FileBuilder {
+        let name_is_utf = name.bytes().any(|byte| byte > 0x7f);
+        let mut builder = FileBuilder {
             name: name,
-            attributes: 0,
+            attributes: consts::ATTR_ARCH,
             datetime: Local::now().naive_local(),
             entry_offset: 0, // filled in later by CabinetWriter
             uncompressed_size: 0, // filled in later by FileWriter
             offset_within_folder: 0, // filled in later by CabinetWriter
-        }
+        };
+        builder.set_attribute(consts::ATTR_NAME_IS_UTF, name_is_utf);
+        builder
     }
 
     /// Sets the datetime for this file.  According to the CAB spec, this "is
@@ -53,19 +56,34 @@ impl FileBuilder {
         self.datetime = datetime;
     }
 
-    /// Sets whether this file has the "read-only" attribute set.
+    /// Sets whether this file has the "read-only" attribute set.  This
+    /// attribute is false by default.
     pub fn set_is_read_only(&mut self, is_read_only: bool) {
         self.set_attribute(consts::ATTR_READ_ONLY, is_read_only);
     }
 
-    /// Sets whether this file has the "hidden" attribute set.
+    /// Sets whether this file has the "hidden" attribute set.  This attribute
+    /// is false by default.
     pub fn set_is_hidden(&mut self, is_hidden: bool) {
         self.set_attribute(consts::ATTR_HIDDEN, is_hidden);
     }
 
-    /// Sets whether this file has the "system file" attribute set.
-    pub fn set_is_system_file(&mut self, is_system_file: bool) {
+    /// Sets whether this file has the "system file" attribute set.  This
+    /// attribute is false by default.
+    pub fn set_is_system(&mut self, is_system_file: bool) {
         self.set_attribute(consts::ATTR_SYSTEM, is_system_file);
+    }
+
+    /// Sets whether this file has the "archive" (modified since last backup)
+    /// attribute set.  This attribute is true by default.
+    pub fn set_is_archive(&mut self, is_archive: bool) {
+        self.set_attribute(consts::ATTR_ARCH, is_archive);
+    }
+
+    /// Returns true if this file has the "execute after extraction" attribute
+    /// set.  This attribute is false by default.
+    pub fn set_is_exec(&mut self, is_exec: bool) {
+        self.set_attribute(consts::ATTR_EXEC, is_exec);
     }
 
     fn set_attribute(&mut self, bit: u16, enable: bool) {
@@ -675,7 +693,7 @@ mod tests {
         let expected: &[u8] = b"MSCF\0\0\0\0\x59\0\0\0\0\0\0\0\
             \x2c\0\0\0\0\0\0\0\x03\x01\x01\0\x01\0\0\0\0\0\0\0\
             \x43\0\0\0\x01\0\0\0\
-            \x0e\0\0\0\0\0\0\0\0\0\x6c\x22\xba\x59\0\0hi.txt\0\
+            \x0e\0\0\0\0\0\0\0\0\0\x6c\x22\xba\x59\x20\0hi.txt\0\
             \x67\x31\x2e\x7f\x0e\0\x0e\0Hello, world!\n";
         assert_eq!(output.as_slice(), expected);
     }
@@ -703,9 +721,30 @@ mod tests {
             b"MSCF\0\0\0\0\x80\0\0\0\0\0\0\0\
             \x2c\0\0\0\0\0\0\0\x03\x01\x01\0\x02\0\0\0\0\0\0\0\
             \x5b\0\0\0\x01\0\0\0\
-            \x0e\0\0\0\0\0\0\0\0\0\x26\x4c\x75\x7a\0\0hi.txt\0\
-            \x0f\0\0\0\x0e\0\0\0\0\0\x26\x4c\x75\x7a\0\0bye.txt\0\
+            \x0e\0\0\0\0\0\0\0\0\0\x26\x4c\x75\x7a\x20\0hi.txt\0\
+            \x0f\0\0\0\x0e\0\0\0\0\0\x26\x4c\x75\x7a\x20\0bye.txt\0\
             \x1a\x54\x09\x35\x1d\0\x1d\0Hello, world!\nSee you later!\n";
+        assert_eq!(output.as_slice(), expected);
+    }
+
+    #[test]
+    fn write_uncompressed_cabinet_with_non_ascii_filename() {
+        let mut builder = CabinetBuilder::new();
+        let dt = NaiveDate::from_ymd(1997, 3, 12).and_hms(11, 13, 52);
+        builder
+            .add_folder(CompressionType::None)
+            .add_file("\u{2603}.txt".to_string())
+            .set_datetime(dt);
+        let mut cab_writer = builder.build(Cursor::new(Vec::new())).unwrap();
+        while let Some(mut file_writer) = cab_writer.next_file().unwrap() {
+            file_writer.write_all(b"Snowman!\n").unwrap();
+        }
+        let output = cab_writer.finish().unwrap().into_inner();
+        let expected: &[u8] = b"MSCF\0\0\0\0\x55\0\0\0\0\0\0\0\
+            \x2c\0\0\0\0\0\0\0\x03\x01\x01\0\x01\0\0\0\0\0\0\0\
+            \x44\0\0\0\x01\0\0\0\
+            \x09\0\0\0\0\0\0\0\0\0\x6c\x22\xba\x59\xa0\0\xe2\x98\x83.txt\0\
+            \x3d\x0f\x08\x56\x09\0\x09\0Snowman!\n";
         assert_eq!(output.as_slice(), expected);
     }
 }

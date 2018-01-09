@@ -20,7 +20,8 @@ fn cabinet_with_one_small_uncompressed_file() {
             .add_file("lorem_ipsum.txt".to_string());
         file_builder.set_datetime(datetime);
         file_builder.set_is_read_only(true);
-        file_builder.set_is_system_file(true);
+        file_builder.set_is_system(true);
+        file_builder.set_is_archive(false);
     }
     let mut cab_writer = cab_builder.build(Cursor::new(Vec::new())).unwrap();
     while let Some(mut file_writer) = cab_writer.next_file().unwrap() {
@@ -34,7 +35,8 @@ fn cabinet_with_one_small_uncompressed_file() {
         assert_eq!(file_entry.datetime(), datetime);
         assert!(file_entry.is_read_only());
         assert!(!file_entry.is_hidden());
-        assert!(file_entry.is_system_file());
+        assert!(file_entry.is_system());
+        assert!(!file_entry.is_archive());
     }
     let mut output = Vec::new();
     let mut file_reader = cabinet.read_file("lorem_ipsum.txt").unwrap();

@@ -59,16 +59,16 @@ impl<R: Read + Seek> Cabinet<R> {
             reader.read_exact(&mut header_reserve_data)?;
         }
         let _prev_cabinet = if (flags & consts::FLAG_PREV_CABINET) != 0 {
-            let cabinet_name = read_null_terminated_string(&mut reader)?;
-            let disk_name = read_null_terminated_string(&mut reader)?;
-            Some((cabinet_name, disk_name))
+            let cab_name = read_null_terminated_string(&mut reader, false)?;
+            let disk_name = read_null_terminated_string(&mut reader, false)?;
+            Some((cab_name, disk_name))
         } else {
             None
         };
         let _next_cabinet = if (flags & consts::FLAG_NEXT_CABINET) != 0 {
-            let cabinet_name = read_null_terminated_string(&mut reader)?;
-            let disk_name = read_null_terminated_string(&mut reader)?;
-            Some((cabinet_name, disk_name))
+            let cab_name = read_null_terminated_string(&mut reader, false)?;
+            let disk_name = read_null_terminated_string(&mut reader, false)?;
+            Some((cab_name, disk_name))
         } else {
             None
         };
@@ -112,7 +112,8 @@ impl<R: Read + Seek> Cabinet<R> {
                 }
             };
             let attributes = reader.read_u16::<LittleEndian>()?;
-            let name = read_null_terminated_string(&mut reader)?;
+            let is_utf8 = (attributes & consts::ATTR_NAME_IS_UTF) != 0;
+            let name = read_null_terminated_string(&mut reader, is_utf8)?;
             let entry = FileEntry {
                 name: name,
                 datetime: datetime,
@@ -346,8 +347,25 @@ impl FileEntry {
     }
 
     /// Returns true if this file has the "system file" attribute set.
-    pub fn is_system_file(&self) -> bool {
+    pub fn is_system(&self) -> bool {
         (self.attributes & consts::ATTR_SYSTEM) != 0
+    }
+
+    /// Returns true if this file has the "archive" (modified since last
+    /// backup) attribute set.
+    pub fn is_archive(&self) -> bool {
+        (self.attributes & consts::ATTR_ARCH) != 0
+    }
+
+    /// Returns true if this file has the "execute after extraction" attribute
+    /// set.
+    pub fn is_exec(&self) -> bool {
+        (self.attributes & consts::ATTR_EXEC) != 0
+    }
+
+    /// Returns true if this file has the "name is UTF" attribute set.
+    pub fn is_name_utf(&self) -> bool {
+        (self.attributes & consts::ATTR_NAME_IS_UTF) != 0
     }
 }
 
@@ -515,19 +533,21 @@ impl<'a, R: Read + Seek> Seek for DataReader<'a, R> {
 }
 // ========================================================================= //
 
-fn read_null_terminated_string<R: Read>(reader: &mut R) -> io::Result<String> {
-    let mut bytes = Vec::<u8>::new();
+fn read_null_terminated_string<R: Read>(reader: &mut R, _is_utf8: bool)
+                                        -> io::Result<String> {
+    let mut bytes = Vec::<u8>::with_capacity(consts::MAX_STRING_SIZE);
     loop {
         let byte = reader.read_u8()?;
         if byte == 0 {
             break;
+        } else if bytes.len() == consts::MAX_STRING_SIZE {
+            invalid_data!("String longer than maximum of {} bytes",
+                          consts::MAX_STRING_SIZE);
         }
         bytes.push(byte);
     }
-    match String::from_utf8(bytes) {
-        Ok(string) => Ok(string),
-        Err(_) => invalid_data!("Invalid UTF-8 string"),
-    }
+    // TODO: Handle decoding differently depending on `_is_utf8`.
+    Ok(String::from_utf8_lossy(&bytes).to_string())
 }
 
 // ========================================================================= //
@@ -553,6 +573,8 @@ mod tests {
         assert_eq!(cabinet.folder_entries().len(), 1);
         {
             let file = cabinet.get_file_entry("hi.txt").unwrap();
+            assert_eq!(file.name(), "hi.txt");
+            assert!(!file.is_name_utf());
             assert_eq!(file.datetime().year(), 1997);
             assert_eq!(file.datetime().month(), 3);
             assert_eq!(file.datetime().day(), 12);
@@ -681,6 +703,28 @@ mod tests {
         let mut data = Vec::new();
         cabinet.read_file("bye.txt").unwrap().read_to_end(&mut data).unwrap();
         assert_eq!(data, b"See you later!\n");
+    }
+
+    #[test]
+    fn read_uncompressed_cabinet_with_non_ascii_filename() {
+        let binary: &[u8] = b"MSCF\0\0\0\0\x55\0\0\0\0\0\0\0\
+            \x2c\0\0\0\0\0\0\0\x03\x01\x01\0\x01\0\0\0\0\0\0\0\
+            \x44\0\0\0\x01\0\0\0\
+            \x09\0\0\0\0\0\0\0\0\0\x6c\x22\xba\x59\xa0\0\xe2\x98\x83.txt\0\
+            \x3d\x0f\x08\x56\x09\0\x09\0Snowman!\n";
+        assert_eq!(binary.len(), 0x55);
+        let mut cabinet = Cabinet::new(Cursor::new(binary)).unwrap();
+        {
+            let file_entry = cabinet.get_file_entry("\u{2603}.txt").unwrap();
+            assert_eq!(file_entry.name(), "\u{2603}.txt");
+            assert!(file_entry.is_name_utf());
+        }
+        {
+            let mut file_reader = cabinet.read_file("\u{2603}.txt").unwrap();
+            let mut data = Vec::new();
+            file_reader.read_to_end(&mut data).unwrap();
+            assert_eq!(data, b"Snowman!\n");
+        }
     }
 }
 
