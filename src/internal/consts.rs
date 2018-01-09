@@ -17,5 +17,6 @@ pub const FLAG_RESERVE_PRESENT: u16 = 0x4;
 pub const ATTR_READ_ONLY: u16 = 0x01;
 pub const ATTR_HIDDEN: u16 = 0x02;
 pub const ATTR_SYSTEM: u16 = 0x04;
+// TODO: Also support ARCH, EXEC, and NAME_IS_UTF attributes.
 
 // ========================================================================= //
