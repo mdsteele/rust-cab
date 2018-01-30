@@ -1,10 +1,11 @@
 extern crate cab;
 extern crate clap;
 
-use cab::{Cabinet, CompressionType, FileEntry, FolderEntry};
+use cab::{Cabinet, CabinetBuilder, CompressionType, FileEntry, FolderEntry};
 use clap::{App, Arg, SubCommand};
-use std::fs::File;
+use std::fs::{self, File};
 use std::io;
+use std::path::PathBuf;
 
 // ========================================================================= //
 
@@ -16,6 +17,21 @@ fn main() {
         .subcommand(SubCommand::with_name("cat")
                         .about("Concatenates and prints streams")
                         .arg(Arg::with_name("cab").required(true))
+                        .arg(Arg::with_name("file").multiple(true)))
+        .subcommand(SubCommand::with_name("create")
+                        .about("Creates a new cabinet")
+                        .arg(Arg::with_name("compress")
+                                 .takes_value(true)
+                                 .value_name("TYPE")
+                                 .short("c")
+                                 .long("compress")
+                                 .help("Sets compression type"))
+                        .arg(Arg::with_name("output")
+                                 .takes_value(true)
+                                 .value_name("PATH")
+                                 .short("o")
+                                 .long("output")
+                                 .help("Sets output path"))
                         .arg(Arg::with_name("file").multiple(true)))
         .subcommand(SubCommand::with_name("ls")
                         .about("Lists files in the cabinet")
@@ -33,6 +49,45 @@ fn main() {
                 io::copy(&mut file_reader, &mut io::stdout()).unwrap();
             }
         }
+    } else if let Some(submatches) = matches.subcommand_matches("create") {
+        let ctype = match submatches.value_of("compress") {
+            None => CompressionType::MsZip,
+            Some("none") => CompressionType::None,
+            Some("mszip") => CompressionType::MsZip,
+            Some(value) => panic!("Invalid compression type: {}", value),
+        };
+        let out_path = if let Some(path) = submatches.value_of("output") {
+            PathBuf::from(path)
+        } else {
+            let mut path = PathBuf::from("out.cab");
+            let mut index: i32 = 0;
+            while path.exists() {
+                index += 1;
+                path = PathBuf::from(format!("out{}.cab", index));
+            }
+            path
+        };
+        let mut builder = CabinetBuilder::new();
+        {
+            let folder = builder.add_folder(ctype);
+            if let Some(filenames) = submatches.values_of("file") {
+                for filename in filenames {
+                    folder.add_file(filename.to_string());
+                }
+            }
+        }
+        let file = fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(&out_path)
+            .unwrap();
+        let mut cabinet = builder.build(file).unwrap();
+        while let Some(mut writer) = cabinet.next_file().unwrap() {
+            let mut file = File::open(writer.file_name()).unwrap();
+            io::copy(&mut file, &mut writer).unwrap();
+        }
+        cabinet.finish().unwrap();
     } else if let Some(submatches) = matches.subcommand_matches("ls") {
         let long = submatches.is_present("long");
         let cabinet = open_cab(submatches.value_of("cab").unwrap()).unwrap();
