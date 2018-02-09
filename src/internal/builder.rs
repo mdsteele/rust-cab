@@ -694,7 +694,7 @@ mod tests {
             \x2c\0\0\0\0\0\0\0\x03\x01\x01\0\x01\0\0\0\0\0\0\0\
             \x43\0\0\0\x01\0\0\0\
             \x0e\0\0\0\0\0\0\0\0\0\x6c\x22\xba\x59\x20\0hi.txt\0\
-            \x67\x31\x2e\x7f\x0e\0\x0e\0Hello, world!\n";
+            \x4c\x1a\x2e\x7f\x0e\0\x0e\0Hello, world!\n";
         assert_eq!(output.as_slice(), expected);
     }
 
