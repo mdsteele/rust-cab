@@ -3,7 +3,7 @@ extern crate clap;
 
 use cab::{Cabinet, CabinetBuilder, CompressionType, FileEntry, FolderEntry};
 use clap::{App, Arg, SubCommand};
-use std::fs::{self, File};
+use std::fs::File;
 use std::io;
 use std::path::PathBuf;
 
@@ -50,11 +50,15 @@ fn main() {
             }
         }
     } else if let Some(submatches) = matches.subcommand_matches("create") {
-        let ctype = match submatches.value_of("compress") {
-            None => CompressionType::MsZip,
-            Some("none") => CompressionType::None,
-            Some("mszip") => CompressionType::MsZip,
-            Some(value) => panic!("Invalid compression type: {}", value),
+        let ctype = if let Some(string) = submatches.value_of("compress") {
+            let string = string.to_lowercase();
+            match string.as_str() {
+                "none" => CompressionType::None,
+                "mszip" => CompressionType::MsZip,
+                _ => panic!("Invalid compression type: {}", string),
+            }
+        } else {
+            CompressionType::MsZip
         };
         let out_path = if let Some(path) = submatches.value_of("output") {
             PathBuf::from(path)
@@ -76,12 +80,7 @@ fn main() {
                 }
             }
         }
-        let file = fs::OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .open(&out_path)
-            .unwrap();
+        let file = File::create(&out_path).unwrap();
         let mut cabinet = builder.build(file).unwrap();
         while let Some(mut writer) = cabinet.next_file().unwrap() {
             let mut file = File::open(writer.file_name()).unwrap();
