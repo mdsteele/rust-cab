@@ -8,6 +8,8 @@ pub const VERSION_MINOR: u8 = 3;
 pub const MAX_HEADER_RESERVE_SIZE: usize = 60_000;
 pub const MAX_FOLDER_RESERVE_SIZE: usize = 255;
 pub const MAX_STRING_SIZE: usize = 255;
+pub const MAX_NUM_FILES: usize = 0xffff;
+pub const MAX_NUM_FOLDERS: usize = 0xffff;
 
 // Header flags:
 pub const FLAG_PREV_CABINET: u16 = 0x1;

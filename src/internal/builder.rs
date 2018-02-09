@@ -205,18 +205,18 @@ impl<W: Write + Seek> CabinetWriter<W> {
     fn start(mut writer: W, mut builder: CabinetBuilder)
              -> io::Result<CabinetWriter<W>> {
         let num_folders = builder.folders.len();
-        if num_folders > u16::MAX as usize {
+        if num_folders > consts::MAX_NUM_FOLDERS {
             invalid_input!("Cabinet has too many folders ({}; max is {})",
                            num_folders,
-                           u16::MAX);
+                           consts::MAX_NUM_FOLDERS);
         }
 
         let num_files: usize =
             builder.folders.iter().map(|folder| folder.files.len()).sum();
-        if num_files > u16::MAX as usize {
+        if num_files > consts::MAX_NUM_FILES {
             invalid_input!("Cabinet has too many files ({}; max is {})",
                            num_files,
-                           u16::MAX);
+                           consts::MAX_NUM_FILES);
         }
 
         let header_reserve_size = builder.reserve_data.len();
