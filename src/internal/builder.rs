@@ -117,8 +117,8 @@ impl FolderBuilder {
 
     /// Adds a new file to the folder.  You can optionally use the returned
     /// `FileBuilder` to change settings on the file.
-    pub fn add_file(&mut self, name: String) -> &mut FileBuilder {
-        self.files.push(FileBuilder::new(name));
+    pub fn add_file<S: Into<String>>(&mut self, name: S) -> &mut FileBuilder {
+        self.files.push(FileBuilder::new(name.into()));
         self.files.last_mut().unwrap()
     }
 
@@ -153,8 +153,6 @@ impl CabinetBuilder {
         self.folders.push(FolderBuilder::new(ctype));
         self.folders.last_mut().unwrap()
     }
-
-    // TODO: pub fn add_file(&mut self, name: String) for convenience
 
     /// Sets the cabinet file's header reserve data.  The meaning of this data
     /// is application-defined.  The data must be no more than 60,000 bytes
@@ -611,7 +609,7 @@ mod tests {
         let dt = NaiveDate::from_ymd(1997, 3, 12).and_hms(11, 13, 52);
         builder
             .add_folder(CompressionType::None)
-            .add_file("hi.txt".to_string())
+            .add_file("hi.txt")
             .set_datetime(dt);
         let mut cab_writer = builder.build(Cursor::new(Vec::new())).unwrap();
         while let Some(mut file_writer) = cab_writer.next_file().unwrap() {
@@ -632,8 +630,8 @@ mod tests {
         let dt = NaiveDate::from_ymd(2018, 1, 6).and_hms(15, 19, 42);
         {
             let folder_builder = builder.add_folder(CompressionType::None);
-            folder_builder.add_file("hi.txt".to_string()).set_datetime(dt);
-            folder_builder.add_file("bye.txt".to_string()).set_datetime(dt);
+            folder_builder.add_file("hi.txt").set_datetime(dt);
+            folder_builder.add_file("bye.txt").set_datetime(dt);
         }
         let mut cab_writer = builder.build(Cursor::new(Vec::new())).unwrap();
         while let Some(mut file_writer) = cab_writer.next_file().unwrap() {
@@ -661,7 +659,7 @@ mod tests {
         let dt = NaiveDate::from_ymd(1997, 3, 12).and_hms(11, 13, 52);
         builder
             .add_folder(CompressionType::None)
-            .add_file("\u{2603}.txt".to_string())
+            .add_file("\u{2603}.txt")
             .set_datetime(dt);
         let mut cab_writer = builder.build(Cursor::new(Vec::new())).unwrap();
         while let Some(mut file_writer) = cab_writer.next_file().unwrap() {

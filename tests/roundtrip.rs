@@ -16,8 +16,7 @@ fn cabinet_with_one_small_uncompressed_file() {
     {
         let folder_builder = cab_builder
             .add_folder(cab::CompressionType::None);
-        let file_builder = folder_builder
-            .add_file("lorem_ipsum.txt".to_string());
+        let file_builder = folder_builder.add_file("lorem_ipsum.txt");
         file_builder.set_datetime(datetime);
         file_builder.set_is_read_only(true);
         file_builder.set_is_system(true);
@@ -51,7 +50,7 @@ fn cabinet_with_one_small_mszipped_file() {
     let mut cab_builder = cab::CabinetBuilder::new();
     cab_builder
         .add_folder(cab::CompressionType::MsZip)
-        .add_file("lorem_ipsum.txt".to_string());
+        .add_file("lorem_ipsum.txt");
     let mut cab_writer = cab_builder.build(Cursor::new(Vec::new())).unwrap();
     while let Some(mut file_writer) = cab_writer.next_file().unwrap() {
         file_writer.write_all(original.as_bytes()).unwrap();
@@ -74,7 +73,7 @@ fn cabinet_with_one_big_uncompressed_file() {
     let mut cab_builder = cab::CabinetBuilder::new();
     cab_builder
         .add_folder(cab::CompressionType::None)
-        .add_file("lorem_ipsum.txt".to_string());
+        .add_file("lorem_ipsum.txt");
     let mut cab_writer = cab_builder.build(Cursor::new(Vec::new())).unwrap();
     while let Some(mut file_writer) = cab_writer.next_file().unwrap() {
         file_writer.write_all(original.as_bytes()).unwrap();
@@ -104,7 +103,7 @@ fn cabinet_with_one_big_mszipped_file() {
     let mut cab_builder = cab::CabinetBuilder::new();
     cab_builder
         .add_folder(cab::CompressionType::MsZip)
-        .add_file("lorem_ipsum.txt".to_string());
+        .add_file("lorem_ipsum.txt");
     let mut cab_writer = cab_builder.build(Cursor::new(Vec::new())).unwrap();
     while let Some(mut file_writer) = cab_writer.next_file().unwrap() {
         file_writer.write_all(original.as_bytes()).unwrap();

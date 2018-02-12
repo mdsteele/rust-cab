@@ -13,7 +13,7 @@ fn seek_within_big_uncompressed_file() {
     let mut cab_builder = cab::CabinetBuilder::new();
     cab_builder
         .add_folder(cab::CompressionType::None)
-        .add_file("lorem_ipsum.txt".to_string());
+        .add_file("lorem_ipsum.txt");
     let mut cab_writer = cab_builder.build(Cursor::new(Vec::new())).unwrap();
     while let Some(mut file_writer) = cab_writer.next_file().unwrap() {
         file_writer.write_all(original_bytes).unwrap();
@@ -42,7 +42,7 @@ fn seek_within_big_mszipped_file() {
     let mut cab_builder = cab::CabinetBuilder::new();
     cab_builder
         .add_folder(cab::CompressionType::MsZip)
-        .add_file("lorem_ipsum.txt".to_string());
+        .add_file("lorem_ipsum.txt");
     let mut cab_writer = cab_builder.build(Cursor::new(Vec::new())).unwrap();
     while let Some(mut file_writer) = cab_writer.next_file().unwrap() {
         file_writer.write_all(original_bytes).unwrap();

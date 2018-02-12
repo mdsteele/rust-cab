@@ -76,7 +76,7 @@ fn main() {
             let folder = builder.add_folder(ctype);
             if let Some(filenames) = submatches.values_of("file") {
                 for filename in filenames {
-                    folder.add_file(filename.to_string());
+                    folder.add_file(filename);
                 }
             }
         }
