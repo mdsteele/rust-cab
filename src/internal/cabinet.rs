@@ -1,9 +1,10 @@
 use byteorder::{LittleEndian, ReadBytesExt};
 use chrono::NaiveDateTime;
+use internal::checksum::Checksum;
 use internal::consts;
 use internal::ctype::CompressionType;
 use internal::datetime::datetime_from_bits;
-use internal::mszip::MsZipReader;
+use internal::mszip::MsZipDecompressor;
 use std::io::{self, Read, Seek, SeekFrom};
 use std::slice;
 
@@ -27,7 +28,13 @@ impl<R: Read + Seek> Cabinet<R> {
             invalid_data!("Not a cabinet file (invalid file signature)");
         }
         let _reserved1 = reader.read_u32::<LittleEndian>()?;
-        let _total_size = reader.read_u32::<LittleEndian>()?;
+        let total_size = reader.read_u32::<LittleEndian>()?;
+        if total_size > consts::MAX_TOTAL_CAB_SIZE {
+            invalid_data!("Cabinet total size field is too large \
+                           ({} bytes; max is {} bytes)",
+                          total_size,
+                          consts::MAX_TOTAL_CAB_SIZE);
+        }
         let _reserved2 = reader.read_u32::<LittleEndian>()?;
         let first_file_offset = reader.read_u32::<LittleEndian>()?;
         let _reserved3 = reader.read_u32::<LittleEndian>()?;
@@ -198,55 +205,9 @@ impl<R: Read + Seek> Cabinet<R> {
                            index,
                            self.folders.len());
         }
-        let compression_type = self.folders[index].compression_type();
-        let data_reader = self.read_data(index)?;
-        let decompressor = match compression_type {
-            CompressionType::None => {
-                FolderDecompressor::Uncompressed(data_reader)
-            }
-            CompressionType::MsZip => {
-                let mszip_reader = MsZipReader::new(data_reader)?;
-                FolderDecompressor::MsZip(mszip_reader)
-            }
-            CompressionType::Quantum(_, _) => {
-                invalid_data!("Quantum decompression is not yet supported.");
-            }
-            CompressionType::Lzx(_) => {
-                invalid_data!("LZX decompression is not yet supported.");
-            }
-        };
-        Ok(FolderReader { decompressor: decompressor })
-    }
-
-    /// Returns a reader over the compressed data in the specified folder.
-    fn read_data(&mut self, index: usize) -> io::Result<DataReader<R>> {
-        if index >= self.folders.len() {
-            invalid_input!("Folder index {} is out of range (cabinet has {} \
-                            folders)",
-                           index,
-                           self.folders.len());
-        }
-        let num_data_blocks = self.folders[index].num_data_blocks() as usize;
-        let mut data_blocks =
-            Vec::<(u64, u64)>::with_capacity(num_data_blocks);
-        let mut cumulative_size: u64 = 0;
-        let mut offset = self.folders[index].first_data_block_offset as u64;
-        for _ in 0..num_data_blocks {
-            self.reader.seek(SeekFrom::Start(offset + 4))?;
-            let compressed_size = self.reader.read_u16::<LittleEndian>()? as
-                u64;
-            cumulative_size += compressed_size;
-            offset += 8 + self.data_reserve_size as u64;
-            data_blocks.push((cumulative_size, offset));
-            offset += compressed_size;
-        }
-        self.reader.seek(SeekFrom::Start(data_blocks[0].1))?;
-        Ok(DataReader {
-               reader: &mut self.reader,
-               data_blocks: data_blocks,
-               current_offset: 0,
-               current_block: 0,
-           })
+        FolderReader::new(&mut self.reader,
+                          &self.folders[index],
+                          self.data_reserve_size)
     }
 }
 
@@ -414,88 +375,162 @@ impl<'a, R: Read + Seek> Seek for FileReader<'a, R> {
 
 /// A reader for reading decompressed data from a cabinet folder.
 struct FolderReader<'a, R: 'a> {
-    decompressor: FolderDecompressor<'a, R>,
+    reader: &'a mut R,
+    decompressor: FolderDecompressor,
+    data_reserve_size: usize,
+    data_blocks: Vec<(u64, u64)>,
+    current_block_index: usize,
+    current_block_data: Vec<u8>,
+    current_offset_within_block: usize,
+    current_offset_within_folder: u64,
 }
 
-enum FolderDecompressor<'a, R: 'a> {
-    Uncompressed(DataReader<'a, R>),
-    MsZip(MsZipReader<DataReader<'a, R>>),
+enum FolderDecompressor {
+    Uncompressed,
+    MsZip(MsZipDecompressor),
     // TODO: add options for other compression types
+}
+
+impl<'a, R: 'a + Read + Seek> FolderReader<'a, R> {
+    fn new(reader: &'a mut R, entry: &FolderEntry, data_reserve_size: u8)
+           -> io::Result<FolderReader<'a, R>> {
+        let num_data_blocks = entry.num_data_blocks() as usize;
+        let mut data_blocks =
+            Vec::<(u64, u64)>::with_capacity(num_data_blocks);
+        let mut cumulative_size: u64 = 0;
+        let mut offset = entry.first_data_block_offset as u64;
+        for _ in 0..num_data_blocks {
+            reader.seek(SeekFrom::Start(offset + 4))?;
+            let compressed_size = reader.read_u16::<LittleEndian>()? as u64;
+            let uncompressed_size = reader.read_u16::<LittleEndian>()? as u64;
+            cumulative_size += uncompressed_size;
+            data_blocks.push((cumulative_size, offset));
+            offset += 8 + data_reserve_size as u64 + compressed_size;
+        }
+        let decompressor = match entry.compression_type() {
+            CompressionType::None => FolderDecompressor::Uncompressed,
+            CompressionType::MsZip => {
+                FolderDecompressor::MsZip(MsZipDecompressor::new())
+            }
+            CompressionType::Quantum(_, _) => {
+                invalid_data!("Quantum decompression is not yet supported.");
+            }
+            CompressionType::Lzx(_) => {
+                invalid_data!("LZX decompression is not yet supported.");
+            }
+        };
+        let mut folder_reader = FolderReader {
+            reader: reader,
+            decompressor: decompressor,
+            data_reserve_size: data_reserve_size as usize,
+            data_blocks: data_blocks,
+            current_block_index: 0,
+            current_block_data: Vec::new(),
+            current_offset_within_block: 0,
+            current_offset_within_folder: 0,
+        };
+        folder_reader.load_block()?;
+        Ok(folder_reader)
+    }
+
+    fn total_size(&self) -> u64 {
+        match self.data_blocks.last() {
+            Some(&(cumulative_size, _)) => cumulative_size,
+            None => 0,
+        }
+    }
+
+    fn current_block_start(&self) -> u64 {
+        if self.current_block_index == 0 {
+            0
+        } else {
+            self.data_blocks[self.current_block_index - 1].0
+        }
+    }
+
+    fn rewind(&mut self) -> io::Result<()> {
+        self.current_offset_within_block = 0;
+        self.current_offset_within_folder = 0;
+        if self.current_block_index != 0 {
+            self.current_block_index = 0;
+            self.load_block()?;
+        }
+        Ok(())
+    }
+
+    fn load_block(&mut self) -> io::Result<()> {
+        if self.current_block_index >= self.data_blocks.len() {
+            self.current_block_data = Vec::new();
+            return Ok(());
+        }
+        let offset = self.data_blocks[self.current_block_index].1;
+        self.reader.seek(SeekFrom::Start(offset))?;
+        let expected_checksum = self.reader.read_u32::<LittleEndian>()?;
+        let compressed_size = self.reader.read_u16::<LittleEndian>()?;
+        let uncompressed_size = self.reader.read_u16::<LittleEndian>()?;
+        let mut reserve_data = vec![0u8; self.data_reserve_size];
+        self.reader.read_exact(&mut reserve_data)?;
+        let mut compressed_data = vec![0u8; compressed_size as usize];
+        self.reader.read_exact(&mut compressed_data)?;
+        if expected_checksum != 0 {
+            let mut checksum = Checksum::new();
+            checksum.append(&reserve_data);
+            checksum.append(&compressed_data);
+            let actual_checksum = checksum.value() ^
+                ((compressed_size as u32) |
+                    ((uncompressed_size as u32) << 16));
+            if actual_checksum != expected_checksum {
+                invalid_data!("Checksum error in data block {} \
+                               (expected {:08x}, actual {:08x})",
+                              self.current_block_index,
+                              expected_checksum,
+                              actual_checksum);
+            }
+        }
+        self.current_block_data = match self.decompressor {
+            FolderDecompressor::Uncompressed => compressed_data,
+            FolderDecompressor::MsZip(ref mut decompressor) => {
+                decompressor
+                    .decompress_block(&compressed_data, uncompressed_size)?
+            }
+        };
+        Ok(())
+    }
 }
 
 impl<'a, R: Read + Seek> Read for FolderReader<'a, R> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        match self.decompressor {
-            FolderDecompressor::Uncompressed(ref mut data_reader) => {
-                data_reader.read(buf)
-            }
-            FolderDecompressor::MsZip(ref mut mszip_reader) => {
-                mszip_reader.read(buf)
-            }
+        if buf.is_empty() ||
+            self.current_block_index >= self.data_blocks.len()
+        {
+            return Ok(0);
         }
+        if self.current_offset_within_block == self.current_block_data.len() {
+            self.current_block_index += 1;
+            self.current_offset_within_block = 0;
+            self.load_block()?;
+        }
+        let max_bytes =
+            buf.len().min(self.current_block_data.len() -
+                              self.current_offset_within_block);
+        buf[..max_bytes]
+            .copy_from_slice(&self.current_block_data
+                                 [self.current_offset_within_block..]
+                                 [..max_bytes]);
+        self.current_offset_within_block += max_bytes;
+        self.current_offset_within_folder += max_bytes as u64;
+        Ok(max_bytes)
     }
 }
 
 impl<'a, R: Read + Seek> Seek for FolderReader<'a, R> {
     fn seek(&mut self, pos: SeekFrom) -> io::Result<u64> {
-        match self.decompressor {
-            FolderDecompressor::Uncompressed(ref mut data_reader) => {
-                data_reader.seek(pos)
-            }
-            FolderDecompressor::MsZip(ref mut mszip_reader) => {
-                mszip_reader.seek(pos)
-            }
-        }
-    }
-}
-
-// ========================================================================= //
-
-/// A reader for reading raw, compressed data from a cabinet folder.
-struct DataReader<'a, R: 'a> {
-    reader: &'a mut R,
-    data_blocks: Vec<(u64, u64)>,
-    current_offset: u64,
-    current_block: usize,
-}
-
-impl<'a, R: Read + Seek> Read for DataReader<'a, R> {
-    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        debug_assert!(self.current_block <= self.data_blocks.len());
-        let bytes_remaining_in_current_block =
-            if self.current_block < self.data_blocks.len() {
-                debug_assert!(self.current_offset <
-                                  self.data_blocks[self.current_block].0);
-                self.data_blocks[self.current_block].0 - self.current_offset
-            } else {
-                0
-            };
-        let max_bytes = bytes_remaining_in_current_block
-            .min(buf.len() as u64) as usize;
-        if max_bytes == 0 {
-            return Ok(0);
-        }
-        let bytes_read = self.reader.read(&mut buf[0..max_bytes])?;
-        self.current_offset += bytes_read as u64;
-        debug_assert!(bytes_read as u64 <= bytes_remaining_in_current_block);
-        if bytes_read as u64 == bytes_remaining_in_current_block {
-            self.current_block += 1;
-            if self.current_block < self.data_blocks.len() {
-                let block_offset = self.data_blocks[self.current_block].1;
-                self.reader.seek(SeekFrom::Start(block_offset))?;
-            }
-        }
-        Ok(bytes_read)
-    }
-}
-
-impl<'a, R: Read + Seek> Seek for DataReader<'a, R> {
-    fn seek(&mut self, pos: SeekFrom) -> io::Result<u64> {
-        debug_assert!(!self.data_blocks.is_empty());
-        let total_size = self.data_blocks.last().unwrap().0;
+        let total_size = self.total_size();
         let new_offset = match pos {
             SeekFrom::Start(offset) => offset as i64,
-            SeekFrom::Current(delta) => self.current_offset as i64 + delta,
+            SeekFrom::Current(delta) => {
+                self.current_offset_within_folder as i64 + delta
+            }
             SeekFrom::End(delta) => total_size as i64 + delta,
         };
         if new_offset < 0 || (new_offset as u64) > total_size {
@@ -504,33 +539,23 @@ impl<'a, R: Read + Seek> Seek for DataReader<'a, R> {
                            total_size);
         }
         let new_offset = new_offset as u64;
-        let new_block =
-            match self.data_blocks
-                .binary_search_by_key(&new_offset, |&entry| entry.0) {
-                Ok(index) => index + 1,
-                Err(index) => index,
-            };
-        if new_block < self.data_blocks.len() {
-            let offset_at_block_start = self.data_blocks[new_block].1;
-            let size_at_block_start = if new_block > 0 {
-                self.data_blocks[new_block - 1].0
-            } else {
-                0
-            };
-            debug_assert!(size_at_block_start <= new_offset);
-            let offset_within_block = new_offset - size_at_block_start;
-            self.reader
-                .seek(SeekFrom::Start(offset_at_block_start +
-                                          offset_within_block))?;
-        } else {
-            debug_assert_eq!(new_offset, total_size);
-            debug_assert_eq!(new_block, self.data_blocks.len());
+        if new_offset < self.current_block_start() {
+            self.rewind()?;
         }
-        self.current_offset = new_offset;
-        self.current_block = new_block;
-        Ok(self.current_offset)
+        // TODO: If folder is uncompressed, we should just jump straight to the
+        // correct block without "decompressing" those in between.
+        while self.data_blocks[self.current_block_index].0 < new_offset {
+            self.current_block_index += 1;
+            self.load_block()?;
+        }
+        debug_assert!(new_offset >= self.current_block_start());
+        self.current_offset_within_block =
+            (new_offset - self.current_block_start()) as usize;
+        self.current_offset_within_folder = new_offset;
+        Ok(new_offset)
     }
 }
+
 // ========================================================================= //
 
 fn read_null_terminated_string<R: Read>(reader: &mut R, _is_utf8: bool)
@@ -564,7 +589,7 @@ mod tests {
             \x2c\0\0\0\0\0\0\0\x03\x01\x01\0\x01\0\0\0\x34\x12\0\0\
             \x43\0\0\0\x01\0\0\0\
             \x0e\0\0\0\0\0\0\0\0\0\x6c\x22\xba\x59\x01\0hi.txt\0\
-            \x67\x31\x2e\x7f\x0e\0\x0e\0Hello, world!\n";
+            \x4c\x1a\x2e\x7f\x0e\0\x0e\0Hello, world!\n";
         assert_eq!(binary.len(), 0x59);
         let mut cabinet = Cabinet::new(Cursor::new(binary)).unwrap();
         assert_eq!(cabinet.cabinet_set_id(), 0x1234);
@@ -582,10 +607,6 @@ mod tests {
             assert_eq!(file.datetime().minute(), 13);
             assert_eq!(file.datetime().second(), 52);
         }
-
-        let mut data = Vec::new();
-        cabinet.read_data(0).unwrap().read_to_end(&mut data).unwrap();
-        assert_eq!(data, b"Hello, world!\n");
 
         let mut data = Vec::new();
         cabinet.read_folder(0).unwrap().read_to_end(&mut data).unwrap();
@@ -636,10 +657,6 @@ mod tests {
                    2);
 
         let mut data = Vec::new();
-        cabinet.read_data(0).unwrap().read_to_end(&mut data).unwrap();
-        assert_eq!(data, b"Hello, world!\n");
-
-        let mut data = Vec::new();
         cabinet.read_folder(0).unwrap().read_to_end(&mut data).unwrap();
         assert_eq!(data, b"Hello, world!\n");
 
@@ -663,12 +680,6 @@ mod tests {
         assert_eq!(cabinet.cabinet_set_index(), 0);
         assert_eq!(cabinet.reserve_data(), &[]);
         assert_eq!(cabinet.folder_entries().len(), 1);
-
-        let mut data = Vec::new();
-        cabinet.read_data(0).unwrap().read_to_end(&mut data).unwrap();
-        assert_eq!(data,
-                   b"CK\xf3H\xcd\xc9\xc9\xd7Q(\xcf/\xcaIQ\
-                     \xe4\x02\x00$\xf2\x04\x94");
 
         let mut data = Vec::new();
         cabinet.read_folder(0).unwrap().read_to_end(&mut data).unwrap();

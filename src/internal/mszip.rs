@@ -1,153 +1,126 @@
-use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
+use byteorder::{LittleEndian, WriteBytesExt};
+use flate2;
 use flate2::Compression;
-use flate2::read::DeflateDecoder;
-use flate2::write::DeflateEncoder;
-use std::io::{self, Read, Seek, SeekFrom, Write};
+use std::io;
 
 // ========================================================================= //
 
 const MSZIP_SIGNATURE: u16 = 0x4B43; // "CK" stored little-endian
-const MSZIP_SIGNATURE_LEN: u64 = 2;
+const MSZIP_SIGNATURE_LEN: usize = 2;
+const MSZIP_BLOCK_TERMINATOR: u16 = 0x0003;
+const DEFLATE_MAX_DICT_LEN: usize = 0x8000;
 
 // ========================================================================= //
 
-pub struct MsZipReader<R> {
-    decoder: Option<DeflateDecoder<R>>,
-    total_uncompressed_size: Option<u64>,
+pub struct MsZipCompressor {
+    compressor: flate2::Compress,
 }
 
-impl<R: Read> MsZipReader<R> {
-    pub fn new(mut reader: R) -> io::Result<MsZipReader<R>> {
-        let signature = reader.read_u16::<LittleEndian>()?;
-        if signature != MSZIP_SIGNATURE {
-            invalid_data!("Invalid MSZIP signature");
+impl MsZipCompressor {
+    pub fn new() -> MsZipCompressor {
+        MsZipCompressor {
+            compressor: flate2::Compress::new(Compression::best(), false),
         }
-        Ok(MsZipReader {
-               decoder: Some(DeflateDecoder::new(reader)),
-               total_uncompressed_size: None,
-           })
     }
 
-    fn decoder(&mut self) -> &DeflateDecoder<R> {
-        self.decoder.as_ref().unwrap()
-    }
-
-    fn decoder_mut(&mut self) -> &mut DeflateDecoder<R> {
-        self.decoder.as_mut().unwrap()
-    }
-}
-
-impl<R: Read + Seek> MsZipReader<R> {
-    fn seek_to_start(&mut self) -> io::Result<()> {
-        self.decoder_mut()
-            .get_mut()
-            .seek(SeekFrom::Start(MSZIP_SIGNATURE_LEN))?;
-        let reader = self.decoder.take().unwrap().into_inner();
-        self.decoder = Some(DeflateDecoder::new(reader));
-        Ok(())
-    }
-}
-
-impl<R: Read> Read for MsZipReader<R> {
-    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        self.decoder_mut().read(buf)
-    }
-}
-
-impl<R: Read + Seek> Seek for MsZipReader<R> {
-    fn seek(&mut self, pos: SeekFrom) -> io::Result<u64> {
-        let advance_by: u64 = match pos {
-            SeekFrom::Start(new_offset) => {
-                let mut current_offset = self.decoder().total_out();
-                if new_offset < current_offset {
-                    self.seek_to_start()?;
-                    current_offset = 0;
-                }
-                new_offset - current_offset
-            }
-            SeekFrom::Current(delta) => {
-                if delta >= 0 {
-                    delta as u64
-                } else {
-                    let old_offset = self.decoder().total_out();
-                    let delta = (-delta) as u64;
-                    if delta > old_offset {
-                        invalid_input!("seek out of range");
-                    }
-                    self.seek_to_start()?;
-                    old_offset - delta
-                }
-            }
-            SeekFrom::End(delta) => {
-                let total_size = match self.total_uncompressed_size {
-                    Some(size) => size,
-                    None => {
-                        io::copy(self.decoder_mut(), &mut io::sink())?;
-                        let size = self.decoder().total_out();
-                        self.total_uncompressed_size = Some(size);
-                        size
-                    }
-                };
-                let current_offset = self.decoder().total_out();
-                debug_assert!(current_offset <= total_size);
-                if delta >= 0 {
-                    total_size - current_offset
-                } else {
-                    let delta = (-delta) as u64;
-                    if delta > total_size {
-                        invalid_input!("seek out of range");
-                    }
-                    let new_offset = total_size - delta;
-                    if new_offset < current_offset {
-                        self.seek_to_start()?;
-                        new_offset
-                    } else {
-                        new_offset - current_offset
-                    }
-                }
-            }
+    pub fn compress_block(&mut self, data: &[u8], is_last_block: bool)
+                          -> io::Result<Vec<u8>> {
+        let mut out = Vec::<u8>::with_capacity(0xffff);
+        out.write_u16::<LittleEndian>(MSZIP_SIGNATURE)?;
+        let flush = if is_last_block {
+            flate2::FlushCompress::Finish
+        } else {
+            flate2::FlushCompress::Sync
         };
-        if advance_by > 0 {
-            io::copy(&mut self.decoder_mut().by_ref().take(advance_by),
-                     &mut io::sink())?;
+        match self.compressor.compress_vec(data, &mut out, flush) {
+            Ok(_) => {}
+            Err(error) => invalid_data!("MSZIP compression failed: {}", error),
         }
-        Ok(self.decoder().total_out())
+        if !is_last_block {
+            out.write_u16::<LittleEndian>(MSZIP_BLOCK_TERMINATOR)?;
+        }
+        Ok(out)
     }
 }
 
 // ========================================================================= //
 
-pub struct MsZipWriter<W: Write> {
-    encoder: DeflateEncoder<W>,
+pub struct MsZipDecompressor {
+    decompressor: flate2::Decompress,
+    dictionary: Vec<u8>,
 }
 
-impl<W: Write> MsZipWriter<W> {
-    pub fn new(mut writer: W) -> io::Result<MsZipWriter<W>> {
-        writer.write_u16::<LittleEndian>(MSZIP_SIGNATURE)?;
-        Ok(MsZipWriter {
-               encoder: DeflateEncoder::new(writer, Compression::best()),
-           })
+impl MsZipDecompressor {
+    pub fn new() -> MsZipDecompressor {
+        MsZipDecompressor {
+            decompressor: flate2::Decompress::new(false),
+            dictionary: Vec::with_capacity(DEFLATE_MAX_DICT_LEN),
+        }
     }
 
-    pub fn get_mut(&mut self) -> &mut W { self.encoder.get_mut() }
-
-    pub fn finish(self) -> io::Result<W> { self.encoder.finish() }
-}
-
-impl<W: Write> Write for MsZipWriter<W> {
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        self.encoder.write(buf)
+    pub fn decompress_block(&mut self, data: &[u8], uncompressed_size: u16)
+                            -> io::Result<Vec<u8>> {
+        // Check signature:
+        if data.len() < (MSZIP_SIGNATURE_LEN as usize) ||
+            ((data[0] as u16) | ((data[1] as u16) << 8)) != MSZIP_SIGNATURE
+        {
+            invalid_data!("MSZIP decompression failed: \
+                           Invalid block signature");
+        }
+        let data = &data[MSZIP_SIGNATURE_LEN..];
+        // Reset decompressor with appropriate dictionary:
+        self.decompressor.reset(false);
+        if !self.dictionary.is_empty() {
+            // TODO: Avoid doing extra allocations/copies here.
+            debug_assert!(self.dictionary.len() <= DEFLATE_MAX_DICT_LEN);
+            let length = self.dictionary.len() as u16;
+            let mut chunk: Vec<u8> = vec![0];
+            chunk.write_u16::<LittleEndian>(length)?;
+            chunk.write_u16::<LittleEndian>(!length)?;
+            chunk.extend_from_slice(&self.dictionary);
+            let mut out = Vec::with_capacity(self.dictionary.len());
+            let flush = flate2::FlushDecompress::Sync;
+            match self.decompressor.decompress_vec(&chunk, &mut out, flush) {
+                Ok(flate2::Status::Ok) => {}
+                _ => unreachable!(),
+            }
+        }
+        // Decompress data:
+        let mut out = Vec::<u8>::with_capacity(uncompressed_size as usize);
+        let flush = flate2::FlushDecompress::Finish;
+        match self.decompressor.decompress_vec(data, &mut out, flush) {
+            Ok(_) => {}
+            Err(error) => {
+                invalid_data!("MSZIP decompression failed: {}", error);
+            }
+        }
+        if out.len() != uncompressed_size as usize {
+            invalid_data!("MSZIP decompression failed: Incorrect uncompressed \
+                           size (expected {}, was actually {})",
+                          uncompressed_size,
+                          out.len());
+        }
+        // Update dictionary for next block:
+        if out.len() >= DEFLATE_MAX_DICT_LEN {
+            let start = out.len() - DEFLATE_MAX_DICT_LEN;
+            self.dictionary = out[start..].to_vec();
+        } else {
+            let total = self.dictionary.len() + out.len();
+            if total > DEFLATE_MAX_DICT_LEN {
+                self.dictionary.drain(..(total - DEFLATE_MAX_DICT_LEN));
+            }
+            self.dictionary.extend_from_slice(&out);
+        }
+        debug_assert_eq!(self.dictionary.capacity(), DEFLATE_MAX_DICT_LEN);
+        Ok(out)
     }
-
-    fn flush(&mut self) -> io::Result<()> { self.encoder.flush() }
 }
 
 // ========================================================================= //
 
 #[cfg(test)]
 mod tests {
-    use super::{MsZipReader, MsZipWriter};
-    use std::io::{Cursor, Read, Seek, SeekFrom, Write};
+    use super::{MsZipCompressor, MsZipDecompressor};
 
     #[test]
     fn read_compressed_data() {
@@ -160,73 +133,55 @@ mod tests {
             b"Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed \
               do eiusmod tempor incididunt ut labore et dolore magna aliqua.";
         assert!(input.len() < expected.len());
-        let mut mszip_reader = MsZipReader::new(input).unwrap();
-        let mut output = Vec::new();
-        mszip_reader.read_to_end(&mut output).unwrap();
+        let mut decompressor = MsZipDecompressor::new();
+        let output = decompressor
+            .decompress_block(&input, expected.len() as u16)
+            .unwrap();
         assert_eq!(output, expected);
     }
 
     #[test]
-    fn seek_and_read() {
-        let input: &[u8] = b"CK%\xcc\xd1\t\x031\x0c\x04\xd1V\xb6\x80#\x95\xa4\
-              \t\xc5\x12\xc7\x82e\xfb,\xa9\xff\x18\xee{x\xf3\x9d\xdb\x1c\\Q\
-              \x0e\x9d}n\x04\x13\xe2\x96\x17\xda\x1ca--kC\x94\x8b\xd18nX\xe7\
-              \x89az\x00\x8c\x15>\x15i\xbe\x0e\xe6hTj\x8dD%\xba\xfc\xce\x1e\
-              \x96\xef\xda\xe0r\x0f\x81t>%\x9f?\x12]-\x87";
-        let mut mszip_reader = MsZipReader::new(Cursor::new(input)).unwrap();
-
-        mszip_reader.seek(SeekFrom::Start(12)).unwrap();
-        let mut output = vec![0u8; 5];
-        mszip_reader.read_exact(&mut output).unwrap();
-        assert_eq!(output, b"dolor");
-
-        mszip_reader.seek(SeekFrom::Start(6)).unwrap();
-        let mut output = vec![0u8; 5];
-        mszip_reader.read_exact(&mut output).unwrap();
-        assert_eq!(output, b"ipsum");
-
-        mszip_reader.seek(SeekFrom::Current(17)).unwrap();
-        let mut output = vec![0u8; 11];
-        mszip_reader.read_exact(&mut output).unwrap();
-        assert_eq!(output, b"consectetur");
-
-        mszip_reader.seek(SeekFrom::Current(-21)).unwrap();
-        let mut output = vec![0u8; 8];
-        mszip_reader.read_exact(&mut output).unwrap();
-        assert_eq!(output, b"sit amet");
-
-        mszip_reader.seek(SeekFrom::End(-13)).unwrap();
-        let mut output = vec![0u8; 5];
-        mszip_reader.read_exact(&mut output).unwrap();
-        assert_eq!(output, b"magna");
-
-        mszip_reader.seek(SeekFrom::End(-7)).unwrap();
-        let mut output = vec![0u8; 6];
-        mszip_reader.read_exact(&mut output).unwrap();
-        assert_eq!(output, b"aliqua");
-
-        mszip_reader.seek(SeekFrom::End(5)).unwrap();
-        let mut output = Vec::new();
-        mszip_reader.read_to_end(&mut output).unwrap();
-        assert!(output.is_empty());
-    }
-
-    #[test]
-    fn compression_round_trip() {
+    fn one_block_round_trip() {
         let original: &[u8] =
             b"Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed \
               do eiusmod tempor incididunt ut labore et dolore magna aliqua.";
-        let mut compressed = Vec::new();
-        {
-            let mut mszip_writer = MsZipWriter::new(&mut compressed).unwrap();
-            mszip_writer.write_all(original).unwrap();
-        }
-        assert!(compressed.len() < original.len());
-        let mut output = Vec::new();
-        let mut mszip_reader = MsZipReader::new(compressed.as_slice())
+        let mut compressor = MsZipCompressor::new();
+        let compressed = compressor.compress_block(original, true).unwrap();
+        let mut decompressor = MsZipDecompressor::new();
+        let output = decompressor
+            .decompress_block(&compressed, original.len() as u16)
             .unwrap();
-        mszip_reader.read_to_end(&mut output).unwrap();
         assert_eq!(output, original);
+    }
+
+    #[test]
+    fn multiple_blocks_round_trip() {
+        let original1: &[u8] =
+            b"Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed \
+              do eiusmod tempor incididunt ut labore et dolore magna aliqua.";
+        let original2: &[u8] =
+            b"Ut enim ad minim veniam, quis nostrud exercitation ullamco \
+              laboris nisi ut aliquip ex ea commodo consequat.";
+        let original3: &[u8] =
+            b"Duis aute irure dolor in reprehenderit in voluptate \
+              velit esse cillum dolore eu fugiat nulla pariatur.";
+        let mut compressor = MsZipCompressor::new();
+        let compressed1 = compressor.compress_block(original1, false).unwrap();
+        let compressed2 = compressor.compress_block(original2, false).unwrap();
+        let compressed3 = compressor.compress_block(original3, true).unwrap();
+        let mut decompressor = MsZipDecompressor::new();
+        let output1 = decompressor
+            .decompress_block(&compressed1, original1.len() as u16)
+            .unwrap();
+        let output2 = decompressor
+            .decompress_block(&compressed2, original2.len() as u16)
+            .unwrap();
+        let output3 = decompressor
+            .decompress_block(&compressed3, original3.len() as u16)
+            .unwrap();
+        assert_eq!(output1, original1);
+        assert_eq!(output2, original2);
+        assert_eq!(output3, original3);
     }
 }
 

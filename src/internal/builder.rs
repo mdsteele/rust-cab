@@ -4,7 +4,7 @@ use internal::checksum::Checksum;
 use internal::consts;
 use internal::ctype::CompressionType;
 use internal::datetime::datetime_to_bits;
-use internal::mszip::MsZipWriter;
+use internal::mszip::MsZipCompressor;
 use std::io::{self, Seek, SeekFrom, Write};
 use std::mem;
 use std::u16;
@@ -12,7 +12,7 @@ use std::u32;
 
 // ========================================================================= //
 
-const MAX_UNCOMPRESSED_BYTES_PER_BLOCK: u16 = 0x8000;
+const MAX_UNCOMPRESSED_BLOCK_SIZE: usize = 0x8000;
 
 // ========================================================================= //
 
@@ -404,11 +404,11 @@ impl<W: Write + Seek> CabinetWriter<W> {
         match self.writer {
             InnerCabinetWriter::Raw(ref mut writer) => {
                 let cabinet_file_size = writer.seek(SeekFrom::Current(0))?;
-                if cabinet_file_size > (u32::MAX as u64) {
+                if cabinet_file_size > (consts::MAX_TOTAL_CAB_SIZE as u64) {
                     invalid_data!("Cabinet file is too large \
                                    ({} bytes; max is {} bytes)",
                                   cabinet_file_size,
-                                  u32::MAX);
+                                  consts::MAX_TOTAL_CAB_SIZE);
                 }
                 writer.seek(SeekFrom::Start(8))?;
                 writer.write_u32::<LittleEndian>(cabinet_file_size as u32)?;
@@ -433,16 +433,16 @@ impl<W: Write + Seek> Drop for CabinetWriter<W> {
 
 /// Allows writing data for a single file within a new cabinet.
 pub struct FileWriter<'a, W: 'a + Write + Seek> {
-    writer: &'a mut FolderWriter<W>,
+    folder_writer: &'a mut FolderWriter<W>,
     file_builder: &'a mut FileBuilder,
 }
 
 impl<'a, W: Write + Seek> FileWriter<'a, W> {
-    fn new(writer: &'a mut FolderWriter<W>,
+    fn new(folder_writer: &'a mut FolderWriter<W>,
            file_builder: &'a mut FileBuilder)
            -> FileWriter<'a, W> {
         FileWriter {
-            writer: writer,
+            folder_writer: folder_writer,
             file_builder: file_builder,
         }
     }
@@ -456,34 +456,37 @@ impl<'a, W: Write + Seek> Write for FileWriter<'a, W> {
         if buf.is_empty() {
             return Ok(0);
         }
-        if self.file_builder.uncompressed_size == u32::MAX {
+        if self.file_builder.uncompressed_size == consts::MAX_FILE_SIZE {
             invalid_input!("File is already at maximum size of {} bytes",
-                           u32::MAX);
+                           consts::MAX_FILE_SIZE);
         }
-        let remaining = u32::MAX - self.file_builder.uncompressed_size;
+        let remaining = consts::MAX_FILE_SIZE -
+            self.file_builder.uncompressed_size;
         let max_bytes = (buf.len() as u64).min(remaining as u64) as usize;
-        let bytes_written = self.writer.write(&buf[0..max_bytes])?;
+        let bytes_written = self.folder_writer.write(&buf[0..max_bytes])?;
         self.file_builder.uncompressed_size += bytes_written as u32;
         Ok(bytes_written)
     }
 
-    fn flush(&mut self) -> io::Result<()> { self.writer.flush() }
+    fn flush(&mut self) -> io::Result<()> { self.folder_writer.flush() }
 }
 
 // ========================================================================= //
 
 /// A writer for writer data into a cabinet folder.
-pub struct FolderWriter<W: Write + Seek> {
-    compressor: FolderCompressor<W>,
+struct FolderWriter<W: Write + Seek> {
+    writer: W,
+    compressor: FolderCompressor,
     folder_entry_offset: u32,
     first_data_block_offset: u32,
+    next_data_block_offset: u64,
     num_data_blocks: u16,
-    uncompressed_bytes_in_current_block: u16,
+    data_block_buffer: Vec<u8>,
 }
 
-enum FolderCompressor<W: Write + Seek> {
-    Uncompressed(DataWriter<W>),
-    MsZip(MsZipWriter<DataWriter<W>>),
+enum FolderCompressor {
+    Uncompressed,
+    MsZip(MsZipCompressor),
     // TODO: add options for other compression types
 }
 
@@ -492,20 +495,16 @@ impl<W: Write + Seek> FolderWriter<W> {
            folder_entry_offset: u32)
            -> io::Result<FolderWriter<W>> {
         let current_offset = writer.seek(SeekFrom::Current(0))?;
-        if current_offset > (u32::MAX as u64) {
+        if current_offset > (consts::MAX_TOTAL_CAB_SIZE as u64) {
             invalid_data!("Cabinet file is too large \
                            (already {} bytes; max is {} bytes)",
                           current_offset,
-                          u32::MAX);
+                          consts::MAX_TOTAL_CAB_SIZE);
         }
-        let data_writer = DataWriter::new(writer);
         let compressor = match compression_type {
-            CompressionType::None => {
-                FolderCompressor::Uncompressed(data_writer)
-            }
+            CompressionType::None => FolderCompressor::Uncompressed,
             CompressionType::MsZip => {
-                let mszip_writer = MsZipWriter::new(data_writer)?;
-                FolderCompressor::MsZip(mszip_writer)
+                FolderCompressor::MsZip(MsZipCompressor::new())
             }
             CompressionType::Quantum(_, _) => {
                 invalid_data!("Quantum compression is not yet supported.");
@@ -515,24 +514,22 @@ impl<W: Write + Seek> FolderWriter<W> {
             }
         };
         Ok(FolderWriter {
+               writer: writer,
                compressor: compressor,
                folder_entry_offset: folder_entry_offset,
                first_data_block_offset: current_offset as u32,
+               next_data_block_offset: current_offset,
                num_data_blocks: 0,
-               uncompressed_bytes_in_current_block: 0,
+               data_block_buffer:
+                   Vec::with_capacity(MAX_UNCOMPRESSED_BLOCK_SIZE),
            })
     }
 
     fn finish(mut self, files: &[FileBuilder]) -> io::Result<W> {
-        let mut data_writer = match self.compressor {
-            FolderCompressor::Uncompressed(data_writer) => data_writer,
-            FolderCompressor::MsZip(mszip_writer) => mszip_writer.finish()?,
-        };
-        if self.uncompressed_bytes_in_current_block > 0 {
-            data_writer.end_block(self.uncompressed_bytes_in_current_block)?;
-            self.num_data_blocks += 1;
+        if !self.data_block_buffer.is_empty() {
+            self.write_data_block(true)?;
         }
-        let mut writer = data_writer.into_inner();
+        let mut writer = self.writer;
         let offset = writer.seek(SeekFrom::Current(0))?;
         writer.seek(SeekFrom::Start(self.folder_entry_offset as u64))?;
         writer.write_u32::<LittleEndian>(self.first_data_block_offset)?;
@@ -545,124 +542,55 @@ impl<W: Write + Seek> FolderWriter<W> {
         writer.seek(SeekFrom::Start(offset))?;
         Ok(writer)
     }
+
+    fn write_data_block(&mut self, is_last_block: bool) -> io::Result<()> {
+        debug_assert!(!self.data_block_buffer.is_empty());
+        let uncompressed_size = self.data_block_buffer.len() as u16;
+        let compressed = match self.compressor {
+            FolderCompressor::Uncompressed => {
+                let empty = Vec::with_capacity(MAX_UNCOMPRESSED_BLOCK_SIZE);
+                mem::replace(&mut self.data_block_buffer, empty)
+            }
+            FolderCompressor::MsZip(ref mut compressor) => {
+                let compressed =
+                    compressor.compress_block(&self.data_block_buffer,
+                                              is_last_block)?;
+                self.data_block_buffer.clear();
+                compressed
+            }
+        };
+        let compressed_size = compressed.len() as u16;
+        let mut checksum = Checksum::new();
+        checksum.append(&compressed);
+        let checksum_value = checksum.value() ^
+            ((compressed_size as u32) | ((uncompressed_size as u32) << 16));
+        let total_data_block_size = 8 + compressed_size as u64;
+        self.writer.seek(SeekFrom::Start(self.next_data_block_offset))?;
+        self.writer.write_u32::<LittleEndian>(checksum_value)?;
+        self.writer.write_u16::<LittleEndian>(compressed_size)?;
+        self.writer.write_u16::<LittleEndian>(uncompressed_size)?;
+        self.writer.write_all(&compressed)?;
+        self.next_data_block_offset += total_data_block_size;
+        self.num_data_blocks += 1;
+        Ok(())
+    }
 }
 
 impl<W: Write + Seek> Write for FolderWriter<W> {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        if self.num_data_blocks == u16::MAX {
-            invalid_input!("Folder is full \
-                            (already at maximum of {} data blocks)",
-                           self.num_data_blocks);
+        let capacity = self.data_block_buffer.capacity();
+        debug_assert_eq!(capacity, MAX_UNCOMPRESSED_BLOCK_SIZE);
+        if buf.is_empty() {
+            return Ok(0);
         }
-        debug_assert!(self.uncompressed_bytes_in_current_block <
-                          MAX_UNCOMPRESSED_BYTES_PER_BLOCK);
-        let remaining: u16 = MAX_UNCOMPRESSED_BYTES_PER_BLOCK -
-            self.uncompressed_bytes_in_current_block;
-        let max_bytes = buf.len().min(remaining as usize);
-        let bytes_written = match self.compressor {
-            FolderCompressor::Uncompressed(ref mut data_writer) => {
-                data_writer.write(&buf[0..max_bytes])?
-            }
-            FolderCompressor::MsZip(ref mut mszip_writer) => {
-                mszip_writer.write(&buf[0..max_bytes])?
-            }
-        };
-        debug_assert!(bytes_written <= remaining as usize);
-        self.uncompressed_bytes_in_current_block += bytes_written as u16;
-        debug_assert!(self.uncompressed_bytes_in_current_block <=
-                          MAX_UNCOMPRESSED_BYTES_PER_BLOCK);
-        if self.uncompressed_bytes_in_current_block ==
-            MAX_UNCOMPRESSED_BYTES_PER_BLOCK
-        {
-            let data_writer = match self.compressor {
-                FolderCompressor::Uncompressed(ref mut data_writer) => {
-                    data_writer
-                }
-                FolderCompressor::MsZip(ref mut mszip_writer) => {
-                    mszip_writer.flush()?;
-                    mszip_writer.get_mut()
-                }
-            };
-            data_writer.end_block(self.uncompressed_bytes_in_current_block)?;
-            self.num_data_blocks += 1;
-            self.uncompressed_bytes_in_current_block = 0;
+        if self.data_block_buffer.len() == capacity {
+            self.write_data_block(false)?;
         }
-        Ok(bytes_written)
-    }
-
-    fn flush(&mut self) -> io::Result<()> {
-        match self.compressor {
-            FolderCompressor::Uncompressed(ref mut data_writer) => {
-                data_writer.flush()
-            }
-            FolderCompressor::MsZip(ref mut mszip_writer) => {
-                mszip_writer.flush()
-            }
-        }
-    }
-}
-
-// ========================================================================= //
-
-struct DataWriter<W> {
-    writer: W,
-    block_offset: Option<u64>,
-    block_size: u64,
-    block_checksum: Checksum,
-}
-
-impl<W: Write + Seek> DataWriter<W> {
-    fn new(writer: W) -> DataWriter<W> {
-        DataWriter {
-            writer: writer,
-            block_offset: None,
-            block_size: 0,
-            block_checksum: Checksum::new(),
-        }
-    }
-
-    fn end_block(&mut self, uncompressed_size: u16) -> io::Result<()> {
-        if let Some(block_offset) = self.block_offset.take() {
-            if self.block_size > (u16::MAX as u64) {
-                invalid_data!("Data block is too large \
-                               ({} bytes; max is {} bytes)",
-                              self.block_size,
-                              u16::MAX);
-            }
-            let new_offset = block_offset + 8 + self.block_size;
-            let checksum_value = self.block_checksum.value() ^
-                ((self.block_size as u32) |
-                    ((uncompressed_size as u32) << 16));
-            self.writer.seek(SeekFrom::Start(block_offset))?;
-            self.writer.write_u32::<LittleEndian>(checksum_value)?;
-            self.writer.write_u16::<LittleEndian>(self.block_size as u16)?;
-            self.writer.write_u16::<LittleEndian>(uncompressed_size)?;
-            self.writer.seek(SeekFrom::Start(new_offset))?;
-            self.block_size = 0;
-            self.block_checksum = Checksum::new();
-        } else {
-            debug_assert_eq!(self.block_size, 0);
-            debug_assert_eq!(uncompressed_size, 0);
-        }
-        Ok(())
-    }
-
-    fn into_inner(self) -> W { self.writer }
-}
-
-impl<W: Write + Seek> Write for DataWriter<W> {
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        if self.block_offset.is_none() {
-            debug_assert_eq!(self.block_size, 0);
-            self.block_offset = Some(self.writer.seek(SeekFrom::Current(0))?);
-            self.writer.write_u32::<LittleEndian>(0)?; // checksum
-            self.writer.write_u16::<LittleEndian>(0)?; // compressed size
-            self.writer.write_u16::<LittleEndian>(0)?; // uncompressed size
-        }
-        let bytes_written = self.writer.write(buf)?;
-        self.block_size += bytes_written as u64;
-        self.block_checksum.append(&buf[0..bytes_written]);
-        Ok(bytes_written)
+        let max_bytes = buf.len().min(capacity - self.data_block_buffer.len());
+        debug_assert!(max_bytes > 0);
+        self.data_block_buffer.extend_from_slice(&buf[..max_bytes]);
+        debug_assert_eq!(self.data_block_buffer.capacity(), capacity);
+        Ok(max_bytes)
     }
 
     fn flush(&mut self) -> io::Result<()> { self.writer.flush() }
