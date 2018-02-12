@@ -1,11 +1,14 @@
 extern crate cab;
+extern crate chrono;
 extern crate clap;
 
 use cab::{Cabinet, CabinetBuilder, CompressionType, FileEntry, FolderEntry};
+use chrono::NaiveDateTime;
 use clap::{App, Arg, SubCommand};
-use std::fs::File;
+use std::fs::{self, File};
 use std::io;
 use std::path::PathBuf;
+use std::time::UNIX_EPOCH;
 
 // ========================================================================= //
 
@@ -72,11 +75,25 @@ fn main() {
             path
         };
         let mut builder = CabinetBuilder::new();
-        {
-            let folder = builder.add_folder(ctype);
-            if let Some(filenames) = submatches.values_of("file") {
-                for filename in filenames {
-                    folder.add_file(filename);
+        if let Some(filenames) = submatches.values_of("file") {
+            let filenames: Vec<&str> = filenames.collect();
+            let mut file_index: usize = 0;
+            while file_index < filenames.len() {
+                let folder = builder.add_folder(ctype);
+                let mut folder_size: u64 = 0;
+                while file_index < filenames.len() && folder_size < 0x8000 {
+                    let filename = filenames[file_index];
+                    let metadata = fs::metadata(filename).unwrap();
+                    folder_size += metadata.len();
+                    let file = folder.add_file(filename);
+                    if let Ok(time) = metadata.modified() {
+                        if let Ok(dur) = time.duration_since(UNIX_EPOCH) {
+                            let secs = dur.as_secs() as i64;
+                            let ndt = NaiveDateTime::from_timestamp(secs, 0);
+                            file.set_datetime(ndt);
+                        }
+                    }
+                    file_index += 1;
                 }
             }
         }
