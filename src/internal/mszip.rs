@@ -25,6 +25,7 @@ impl MsZipCompressor {
 
     pub fn compress_block(&mut self, data: &[u8], is_last_block: bool)
                           -> io::Result<Vec<u8>> {
+        debug_assert!(data.len() <= 0x8000);
         let mut out = Vec::<u8>::with_capacity(0xffff);
         out.write_u16::<LittleEndian>(MSZIP_SIGNATURE)?;
         let flush = if is_last_block {
@@ -38,6 +39,17 @@ impl MsZipCompressor {
         }
         if !is_last_block {
             out.write_u16::<LittleEndian>(MSZIP_BLOCK_TERMINATOR)?;
+        }
+        let max_out_len = data.len() + 7;
+        if out.len() > max_out_len {
+            out = Vec::with_capacity(max_out_len);
+            out.write_u16::<LittleEndian>(MSZIP_SIGNATURE)?;
+            out.push(1);
+            out.write_u16::<LittleEndian>(data.len() as u16)?;
+            out.write_u16::<LittleEndian>(!(data.len() as u16))?;
+            out.extend_from_slice(data);
+            debug_assert_eq!(out.len(), max_out_len);
+            debug_assert_eq!(out.capacity(), max_out_len);
         }
         Ok(out)
     }
