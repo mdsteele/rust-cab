@@ -1,14 +1,16 @@
 extern crate cab;
 extern crate chrono;
 extern crate lipsum;
+extern crate rand;
 
 use chrono::NaiveDate;
+use rand::Rng;
 use std::io::{Cursor, Read, Write};
 
 // ========================================================================= //
 
 #[test]
-fn cabinet_with_one_small_uncompressed_file() {
+fn cabinet_with_one_small_uncompressed_text_file() {
     let original = lipsum::lipsum(500);
     let datetime = NaiveDate::from_ymd(2063, 4, 5).and_hms(23, 14, 38);
 
@@ -44,7 +46,7 @@ fn cabinet_with_one_small_uncompressed_file() {
 }
 
 #[test]
-fn cabinet_with_one_small_mszipped_file() {
+fn cabinet_with_one_small_mszipped_text_file() {
     let original = lipsum::lipsum(500);
 
     let mut cab_builder = cab::CabinetBuilder::new();
@@ -67,7 +69,7 @@ fn cabinet_with_one_small_mszipped_file() {
 }
 
 #[test]
-fn cabinet_with_one_big_uncompressed_file() {
+fn cabinet_with_one_big_uncompressed_text_file() {
     let original = lipsum::lipsum(30000);
 
     let mut cab_builder = cab::CabinetBuilder::new();
@@ -97,7 +99,7 @@ fn cabinet_with_one_big_uncompressed_file() {
 }
 
 #[test]
-fn cabinet_with_one_big_mszipped_file() {
+fn cabinet_with_one_big_mszipped_text_file() {
     let original = lipsum::lipsum(30000);
 
     let mut cab_builder = cab::CabinetBuilder::new();
@@ -123,6 +125,55 @@ fn cabinet_with_one_big_mszipped_file() {
     file_reader.read_to_end(&mut output).unwrap();
     assert_eq!(output.len(), original.len());
     assert_eq!(String::from_utf8_lossy(&output), original);
+}
+
+// ========================================================================= //
+
+fn random_data_roundtrip(num_bytes: usize, ctype: cab::CompressionType) {
+    let original: Vec<u8> =
+        rand::thread_rng().gen_iter::<u8>().take(num_bytes).collect();
+
+    let mut cab_builder = cab::CabinetBuilder::new();
+    cab_builder.add_folder(ctype).add_file("binary");
+    let mut cab_writer = cab_builder.build(Cursor::new(Vec::new())).unwrap();
+    while let Some(mut file_writer) = cab_writer.next_file().unwrap() {
+        file_writer.write_all(&original).unwrap();
+    }
+    let cab_file = cab_writer.finish().unwrap().into_inner();
+
+    let mut cabinet = cab::Cabinet::new(Cursor::new(cab_file)).unwrap();
+    {
+        let folder = cabinet.folder_entries().nth(0).unwrap();
+        assert_eq!(folder.compression_type(), ctype);
+        assert!((folder.num_data_blocks() as usize) >= (num_bytes / 0x8000));
+        let file = folder.file_entries().nth(0).unwrap();
+        assert_eq!(file.name(), "binary");
+        assert_eq!(file.uncompressed_size() as usize, original.len());
+    }
+    let mut output = Vec::<u8>::new();
+    let mut file_reader = cabinet.read_file("binary").unwrap();
+    file_reader.read_to_end(&mut output).unwrap();
+    assert_eq!(output, original);
+}
+
+#[test]
+fn cabinet_with_one_small_uncompressed_binary_file() {
+    random_data_roundtrip(10_000, cab::CompressionType::None);
+}
+
+#[test]
+fn cabinet_with_one_small_mszipped_binary_file() {
+    random_data_roundtrip(10_000, cab::CompressionType::MsZip);
+}
+
+#[test]
+fn cabinet_with_one_big_uncompressed_binary_file() {
+    random_data_roundtrip(1_000_000, cab::CompressionType::None);
+}
+
+#[test]
+fn cabinet_with_one_big_mszipped_binary_file() {
+    random_data_roundtrip(1_000_000, cab::CompressionType::MsZip);
 }
 
 // ========================================================================= //
