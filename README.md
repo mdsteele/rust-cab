@@ -1,5 +1,6 @@
 # rust-cab
 
+[![Build Status](https://travis-ci.com/mdsteele/rust-cab.svg?branch=master)](https://travis-ci.com/mdsteele/rust-cab)
 [![Build status](https://ci.appveyor.com/api/projects/status/abl75nfimn327a6h?svg=true)](https://ci.appveyor.com/project/mdsteele/rust-cab)
 
 A pure Rust library for reading/writing [Windows
