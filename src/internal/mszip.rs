@@ -163,6 +163,147 @@ mod tests {
         rand::thread_rng().gen_iter::<u8>().take(size).collect()
     }
 
+    #[cfg(windows)]
+    /// Wrappers for the Microsoft compression API so that on Windows we can
+    /// test interop with the system implementation.  This code comes from
+    /// https://github.com/luser/rust-makecab; thanks to Ted Mielczarek for
+    /// sharing it.
+    mod sys {
+        #![allow(non_camel_case_types)]
+
+        extern crate winapi;
+
+        use self::winapi::basetsd::{PSIZE_T, SIZE_T};
+        use self::winapi::minwindef::{BOOL, DWORD, FALSE, LPVOID, TRUE};
+        use self::winapi::winnt::{HANDLE, PVOID};
+        use super::super::DEFLATE_MAX_DICT_LEN;
+        use std::mem;
+        use std::ptr;
+
+        const COMPRESS_ALGORITHM_MSZIP: DWORD = 2;
+        const COMPRESS_RAW: DWORD = 1 << 29;
+        type PCOMPRESS_ALLOCATION_ROUTINES = LPVOID;
+        type COMPRESSOR_HANDLE = HANDLE;
+        type DECOMPRESSOR_HANDLE = HANDLE;
+        type PCOMPRESSOR_HANDLE = *mut COMPRESSOR_HANDLE;
+        type PDECOMPRESSOR_HANDLE = *mut DECOMPRESSOR_HANDLE;
+
+        #[cfg_attr(rustfmt, rustfmt_skip)]
+        #[link(name = "cabinet")]
+        extern "system" {
+            fn CreateCompressor(
+                Algorithm: DWORD,
+                AllocationRoutines: LPVOID,
+                CompressorHandle: PCOMPRESSOR_HANDLE)
+                -> BOOL;
+            fn CloseCompressor(
+                CompressorHandle: COMPRESSOR_HANDLE)
+                -> BOOL;
+            fn Compress(
+                CompressorHandle: COMPRESSOR_HANDLE,
+                UncompressedData: PVOID,
+                UncompressedDataSize: SIZE_T,
+                CompressedBuffer: PVOID,
+                CompressedBufferSize: SIZE_T,
+                CompressedDataSize: PSIZE_T)
+                -> BOOL;
+
+            fn CreateDecompressor(
+                Algorithm: DWORD,
+                AllocationRoutines: PCOMPRESS_ALLOCATION_ROUTINES,
+                DecompressorHandle: PDECOMPRESSOR_HANDLE)
+                -> BOOL;
+            fn CloseDecompressor(
+                DecompressorHandle: DECOMPRESSOR_HANDLE)
+                -> BOOL;
+            fn Decompress(
+                DecompressorHandle: DECOMPRESSOR_HANDLE,
+                CompressedData: PVOID,
+                CompressedDataSize: SIZE_T,
+                UncompressedBuffer: PVOID,
+                UncompressedBufferSize: SIZE_T,
+                UncompressedDataSize: PSIZE_T)
+                -> BOOL;
+        }
+
+        /// Compress `data` with the Microsoft compression API.
+        pub fn do_system_compress(data: &[u8]) -> Vec<(usize, Vec<u8>)> {
+            let handle = unsafe {
+                let mut handle: COMPRESSOR_HANDLE = mem::uninitialized();
+                if CreateCompressor(COMPRESS_ALGORITHM_MSZIP | COMPRESS_RAW,
+                                    ptr::null_mut(),
+                                    &mut handle as PCOMPRESSOR_HANDLE) !=
+                    TRUE
+                {
+                    panic!("CreateCompressor failed");
+                }
+                handle
+            };
+            let mut blocks = Vec::<(usize, Vec<u8>)>::new();
+            for slice in data.chunks(DEFLATE_MAX_DICT_LEN) {
+                let mut buffer = vec![0; 0xffff];
+                unsafe {
+                    let mut compressed_size: SIZE_T = mem::uninitialized();
+                    if Compress(handle,
+                                slice.as_ptr() as PVOID,
+                                slice.len() as SIZE_T,
+                                buffer.as_ptr() as PVOID,
+                                buffer.len() as SIZE_T,
+                                &mut compressed_size as PSIZE_T) ==
+                        FALSE
+                    {
+                        panic!("Compress failed");
+                    }
+                    buffer.resize(compressed_size as usize, 0);
+                }
+                blocks.push((slice.len(), buffer));
+            }
+            unsafe {
+                CloseCompressor(handle);
+            }
+            blocks
+        }
+
+        pub fn do_system_decompress(blocks: Vec<(usize, Vec<u8>)>) -> Vec<u8> {
+            let handle = unsafe {
+                let mut handle: DECOMPRESSOR_HANDLE = mem::uninitialized();
+                if CreateDecompressor(COMPRESS_ALGORITHM_MSZIP |
+                                          COMPRESS_RAW,
+                                      ptr::null_mut(),
+                                      &mut handle as PDECOMPRESSOR_HANDLE) !=
+                    TRUE
+                {
+                    panic!("CreateDecompressor failed");
+                }
+                handle
+            };
+            let mut buffer = Vec::<u8>::new();
+            // Decompress each chunk in turn.
+            for (original_size, ref block) in blocks.into_iter() {
+                assert!(original_size <= DEFLATE_MAX_DICT_LEN);
+                // Make space in the output buffer.
+                let last = buffer.len();
+                buffer.resize(last + original_size, 0);
+                unsafe {
+                    if Decompress(handle,
+                                  block.as_ptr() as PVOID,
+                                  block.len() as SIZE_T,
+                                  buffer[last..].as_mut_ptr() as PVOID,
+                                  original_size as SIZE_T,
+                                  ptr::null_mut()) ==
+                        FALSE
+                    {
+                        panic!("Decompress failed");
+                    }
+                }
+            }
+            unsafe {
+                CloseDecompressor(handle);
+            }
+            buffer
+        }
+    }
+
     fn do_lib_compress(mut data: &[u8]) -> Vec<(usize, Vec<u8>)> {
         let mut blocks = Vec::<(usize, Vec<u8>)>::new();
         let mut compressor = MsZipCompressor::new();
@@ -188,74 +329,68 @@ mod tests {
         output
     }
 
-    fn test_lib_round_trip(data: &[u8]) {
-        assert_eq!(do_lib_decompress(do_lib_compress(data)).as_slice(), data);
+    macro_rules! round_trip_tests {
+        ($name:ident, $data:expr) => {
+            mod $name {
+                use super::*;
+
+                #[test]
+                fn lib_to_lib() {
+                    let original: &[u8] = $data;
+                    let compressed = do_lib_compress(original);
+                    assert_eq!(do_lib_decompress(compressed).as_slice(),
+                               original);
+                }
+
+                #[cfg(windows)]
+                #[test]
+                fn lib_to_sys() {
+                    let original: &[u8] = $data;
+                    let compressed = do_lib_compress(original);
+                    assert_eq!(
+                        sys::do_system_decompress(compressed).as_slice(),
+                        original);
+                }
+
+                #[cfg(windows)]
+                #[test]
+                fn sys_to_lib() {
+                    let original: &[u8] = $data;
+                    let compressed = sys::do_system_compress(original);
+                    assert_eq!(do_lib_decompress(compressed).as_slice(),
+                               original);
+                }
+            }
+        }
     }
 
-    #[test]
-    fn lorem_ipsum_lib_round_trip() {
-        test_lib_round_trip(
-            b"Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed \
-              do eiusmod tempor incididunt ut labore et dolore magna aliqua.");
-    }
+    round_trip_tests!(
+        lorem_ipsum,
+        b"Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed \
+          do eiusmod tempor incididunt ut labore et dolore magna aliqua.");
 
-    #[test]
-    fn one_block_exactly_lib_round_trip() {
-        test_lib_round_trip(&repeating_data(DEFLATE_MAX_DICT_LEN));
-    }
+    round_trip_tests!(one_block_exactly,
+                      &repeating_data(DEFLATE_MAX_DICT_LEN));
+    round_trip_tests!(one_block_less_a_byte,
+                      &repeating_data(DEFLATE_MAX_DICT_LEN - 1));
+    round_trip_tests!(one_block_plus_a_byte,
+                      &repeating_data(DEFLATE_MAX_DICT_LEN + 1));
 
-    #[test]
-    fn one_block_less_a_byte_lib_round_trip() {
-        test_lib_round_trip(&repeating_data(DEFLATE_MAX_DICT_LEN - 1));
-    }
+    round_trip_tests!(zeros_one_block, &[0u8; 1000]);
+    round_trip_tests!(zeros_two_blocks, &[0u8; DEFLATE_MAX_DICT_LEN + 1000]);
+    round_trip_tests!(zeros_many_blocks, &[0u8; DEFLATE_MAX_DICT_LEN * 10]);
 
-    #[test]
-    fn one_block_plus_a_byte_lib_round_trip() {
-        test_lib_round_trip(&repeating_data(DEFLATE_MAX_DICT_LEN + 1));
-    }
+    round_trip_tests!(repeating_one_block, &repeating_data(1000));
+    round_trip_tests!(repeating_two_blocks,
+                      &repeating_data(DEFLATE_MAX_DICT_LEN + 1000));
+    round_trip_tests!(repeating_many_blocks,
+                      &repeating_data(DEFLATE_MAX_DICT_LEN * 10));
 
-    #[test]
-    fn zeros_one_block_lib_round_trip() { test_lib_round_trip(&[0u8; 1000]); }
-
-    #[test]
-    fn zeros_two_blocks_lib_round_trip() {
-        test_lib_round_trip(&[0u8; DEFLATE_MAX_DICT_LEN + 1000]);
-    }
-
-    #[test]
-    fn zeros_many_blocks_lib_round_trip() {
-        test_lib_round_trip(&[0u8; DEFLATE_MAX_DICT_LEN * 10]);
-    }
-
-    #[test]
-    fn repeating_one_block_lib_round_trip() {
-        test_lib_round_trip(&repeating_data(1000));
-    }
-
-    #[test]
-    fn repeating_two_blocks_lib_round_trip() {
-        test_lib_round_trip(&repeating_data(DEFLATE_MAX_DICT_LEN + 1000));
-    }
-
-    #[test]
-    fn repeating_many_blocks_lib_round_trip() {
-        test_lib_round_trip(&repeating_data(DEFLATE_MAX_DICT_LEN * 10));
-    }
-
-    #[test]
-    fn random_one_block_lib_round_trip() {
-        test_lib_round_trip(&random_data(1000));
-    }
-
-    #[test]
-    fn random_two_blocks_lib_round_trip() {
-        test_lib_round_trip(&random_data(DEFLATE_MAX_DICT_LEN + 1000));
-    }
-
-    #[test]
-    fn random_many_blocks_lib_round_trip() {
-        test_lib_round_trip(&random_data(DEFLATE_MAX_DICT_LEN * 10));
-    }
+    round_trip_tests!(random_one_block, &random_data(1000));
+    round_trip_tests!(random_two_blocks,
+                      &random_data(DEFLATE_MAX_DICT_LEN + 1000));
+    round_trip_tests!(random_many_blocks,
+                      &random_data(DEFLATE_MAX_DICT_LEN * 10));
 }
 
 // ========================================================================= //
