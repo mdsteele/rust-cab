@@ -258,7 +258,9 @@ mod tests {
                 }
                 blocks.push((slice.len(), buffer));
             }
-            unsafe { CloseCompressor(handle) }
+            unsafe {
+                CloseCompressor(handle);
+            }
             blocks
         }
 
@@ -295,7 +297,9 @@ mod tests {
                     }
                 }
             }
-            unsafe { CloseDecompressor(handle) }
+            unsafe {
+                CloseDecompressor(handle);
+            }
             buffer
         }
     }
