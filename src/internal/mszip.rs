@@ -177,7 +177,6 @@ mod tests {
         use self::winapi::minwindef::{BOOL, DWORD, FALSE, LPVOID, TRUE};
         use self::winapi::winnt::{HANDLE, PVOID};
         use super::super::DEFLATE_MAX_DICT_LEN;
-        use std::io::Cursor;
         use std::mem;
         use std::ptr;
 
@@ -228,7 +227,7 @@ mod tests {
         }
 
         /// Compress `data` with the Microsoft compression API.
-        fn do_system_compress(data: &[u8]) -> Vec<(usize, Vec<u8>)> {
+        pub fn do_system_compress(data: &[u8]) -> Vec<(usize, Vec<u8>)> {
             let handle = unsafe {
                 let mut handle: COMPRESSOR_HANDLE = mem::uninitialized();
                 if CreateCompressor(COMPRESS_ALGORITHM_MSZIP | COMPRESS_RAW,
@@ -246,7 +245,7 @@ mod tests {
                 unsafe {
                     let mut compressed_size: SIZE_T = mem::uninitialized();
                     if Compress(handle,
-                                chunk.as_ptr() as PVOID,
+                                slice.as_ptr() as PVOID,
                                 slice.len() as SIZE_T,
                                 buffer.as_ptr() as PVOID,
                                 buffer.len() as SIZE_T,
@@ -263,7 +262,7 @@ mod tests {
             blocks
         }
 
-        fn do_system_decompress(blocks: Vec<(usize, Vec<u8>)>) -> Vec<u8> {
+        pub fn do_system_decompress(blocks: Vec<(usize, Vec<u8>)>) -> Vec<u8> {
             let handle = unsafe {
                 let mut handle: DECOMPRESSOR_HANDLE = mem::uninitialized();
                 if CreateDecompressor(COMPRESS_ALGORITHM_MSZIP |
@@ -279,10 +278,10 @@ mod tests {
             let mut buffer = Vec::<u8>::new();
             // Decompress each chunk in turn.
             for (original_size, ref block) in blocks.into_iter() {
-                assert!(original_size <= MAX_CHUNK);
+                assert!(original_size <= DEFLATE_MAX_DICT_LEN);
                 // Make space in the output buffer.
-                let last = buf.len();
-                buf.resize(last + original_size, 0);
+                let last = buffer.len();
+                buffer.resize(last + original_size, 0);
                 unsafe {
                     if Decompress(handle,
                                   block.as_ptr() as PVOID,
