@@ -132,7 +132,9 @@ impl MsZipDecompressor {
 
 #[cfg(test)]
 mod tests {
-    use super::{MsZipCompressor, MsZipDecompressor};
+    extern crate rand;
+    use self::rand::Rng;
+    use super::{DEFLATE_MAX_DICT_LEN, MsZipCompressor, MsZipDecompressor};
 
     #[test]
     fn read_compressed_data() {
@@ -152,48 +154,107 @@ mod tests {
         assert_eq!(output, expected);
     }
 
-    #[test]
-    fn one_block_round_trip() {
-        let original: &[u8] =
-            b"Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed \
-              do eiusmod tempor incididunt ut labore et dolore magna aliqua.";
+    fn repeating_data(size: usize) -> Vec<u8> {
+        let modulus = 251; // a prime number no bigger than u8::MAX
+        (0..size).map(|index| (index % modulus) as u8).collect::<Vec<u8>>()
+    }
+
+    fn random_data(size: usize) -> Vec<u8> {
+        rand::thread_rng().gen_iter::<u8>().take(size).collect()
+    }
+
+    fn do_lib_compress(mut data: &[u8]) -> Vec<(usize, Vec<u8>)> {
+        let mut blocks = Vec::<(usize, Vec<u8>)>::new();
         let mut compressor = MsZipCompressor::new();
-        let compressed = compressor.compress_block(original, true).unwrap();
+        while data.len() > DEFLATE_MAX_DICT_LEN {
+            let slice = &data[0..DEFLATE_MAX_DICT_LEN];
+            let compressed = compressor.compress_block(slice, false).unwrap();
+            blocks.push((slice.len(), compressed));
+            data = &data[slice.len()..];
+        }
+        let compressed = compressor.compress_block(data, true).unwrap();
+        blocks.push((data.len(), compressed));
+        blocks
+    }
+
+    fn do_lib_decompress(blocks: Vec<(usize, Vec<u8>)>) -> Vec<u8> {
+        let mut output = Vec::<u8>::new();
         let mut decompressor = MsZipDecompressor::new();
-        let output = decompressor
-            .decompress_block(&compressed, original.len() as u16)
-            .unwrap();
-        assert_eq!(output, original);
+        for (size, compressed) in blocks.into_iter() {
+            output.append(&mut decompressor
+                              .decompress_block(&compressed, size as u16)
+                              .unwrap());
+        }
+        output
+    }
+
+    fn test_lib_round_trip(data: &[u8]) {
+        assert_eq!(do_lib_decompress(do_lib_compress(data)).as_slice(), data);
     }
 
     #[test]
-    fn multiple_blocks_round_trip() {
-        let original1: &[u8] =
+    fn lorem_ipsum_lib_round_trip() {
+        test_lib_round_trip(
             b"Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed \
-              do eiusmod tempor incididunt ut labore et dolore magna aliqua.";
-        let original2: &[u8] =
-            b"Ut enim ad minim veniam, quis nostrud exercitation ullamco \
-              laboris nisi ut aliquip ex ea commodo consequat.";
-        let original3: &[u8] =
-            b"Duis aute irure dolor in reprehenderit in voluptate \
-              velit esse cillum dolore eu fugiat nulla pariatur.";
-        let mut compressor = MsZipCompressor::new();
-        let compressed1 = compressor.compress_block(original1, false).unwrap();
-        let compressed2 = compressor.compress_block(original2, false).unwrap();
-        let compressed3 = compressor.compress_block(original3, true).unwrap();
-        let mut decompressor = MsZipDecompressor::new();
-        let output1 = decompressor
-            .decompress_block(&compressed1, original1.len() as u16)
-            .unwrap();
-        let output2 = decompressor
-            .decompress_block(&compressed2, original2.len() as u16)
-            .unwrap();
-        let output3 = decompressor
-            .decompress_block(&compressed3, original3.len() as u16)
-            .unwrap();
-        assert_eq!(output1, original1);
-        assert_eq!(output2, original2);
-        assert_eq!(output3, original3);
+              do eiusmod tempor incididunt ut labore et dolore magna aliqua.");
+    }
+
+    #[test]
+    fn one_block_exactly_lib_round_trip() {
+        test_lib_round_trip(&repeating_data(DEFLATE_MAX_DICT_LEN));
+    }
+
+    #[test]
+    fn one_block_less_a_byte_lib_round_trip() {
+        test_lib_round_trip(&repeating_data(DEFLATE_MAX_DICT_LEN - 1));
+    }
+
+    #[test]
+    fn one_block_plus_a_byte_lib_round_trip() {
+        test_lib_round_trip(&repeating_data(DEFLATE_MAX_DICT_LEN + 1));
+    }
+
+    #[test]
+    fn zeros_one_block_lib_round_trip() { test_lib_round_trip(&[0u8; 1000]); }
+
+    #[test]
+    fn zeros_two_blocks_lib_round_trip() {
+        test_lib_round_trip(&[0u8; DEFLATE_MAX_DICT_LEN + 1000]);
+    }
+
+    #[test]
+    fn zeros_many_blocks_lib_round_trip() {
+        test_lib_round_trip(&[0u8; DEFLATE_MAX_DICT_LEN * 10]);
+    }
+
+    #[test]
+    fn repeating_one_block_lib_round_trip() {
+        test_lib_round_trip(&repeating_data(1000));
+    }
+
+    #[test]
+    fn repeating_two_blocks_lib_round_trip() {
+        test_lib_round_trip(&repeating_data(DEFLATE_MAX_DICT_LEN + 1000));
+    }
+
+    #[test]
+    fn repeating_many_blocks_lib_round_trip() {
+        test_lib_round_trip(&repeating_data(DEFLATE_MAX_DICT_LEN * 10));
+    }
+
+    #[test]
+    fn random_one_block_lib_round_trip() {
+        test_lib_round_trip(&random_data(1000));
+    }
+
+    #[test]
+    fn random_two_blocks_lib_round_trip() {
+        test_lib_round_trip(&random_data(DEFLATE_MAX_DICT_LEN + 1000));
+    }
+
+    #[test]
+    fn random_many_blocks_lib_round_trip() {
+        test_lib_round_trip(&random_data(DEFLATE_MAX_DICT_LEN * 10));
     }
 }
 
