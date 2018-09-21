@@ -163,7 +163,7 @@ mod tests {
         rand::thread_rng().gen_iter::<u8>().take(size).collect()
     }
 
-    #[cfg(windows)]
+    #[cfg(target_env = "msvc")]
     /// Wrappers for the Microsoft compression API so that on Windows we can
     /// test interop with the system implementation.  This code comes from
     /// https://github.com/luser/rust-makecab; thanks to Ted Mielczarek for
@@ -342,7 +342,7 @@ mod tests {
                                original);
                 }
 
-                #[cfg(windows)]
+                #[cfg(target_env = "msvc")]
                 #[test]
                 fn lib_to_sys() {
                     let original: &[u8] = $data;
@@ -352,7 +352,7 @@ mod tests {
                         original);
                 }
 
-                #[cfg(windows)]
+                #[cfg(target_env = "msvc")]
                 #[test]
                 fn sys_to_lib() {
                     let original: &[u8] = $data;
