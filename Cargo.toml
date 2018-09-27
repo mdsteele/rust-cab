@@ -1,6 +1,6 @@
 [package]
 name = "cab"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["Matthew D. Steele <mdsteele@alum.mit.edu>"]
 description = "Read/write Windows cabinet (CAB) files"
 repository = "https://github.com/mdsteele/rust-cab"
