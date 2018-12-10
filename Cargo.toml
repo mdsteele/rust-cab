@@ -15,6 +15,6 @@ flate2 = { version = "1", features = ["rust_backend"], default-features = false 
 
 [dev-dependencies]
 clap = "2.27"
-lipsum = "0.4"
+lipsum = "0.6"
 rand = "0.3"
 winapi = "0.2"
