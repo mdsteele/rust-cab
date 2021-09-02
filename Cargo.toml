@@ -15,6 +15,7 @@ chrono = "0.4"
 flate2 = { version = "1", features = ["rust_backend"], default-features = false }
 
 [dev-dependencies]
+anyhow = "1.0.43"
 clap = "2.27"
 lipsum = "0.6"
 rand = "0.3"
