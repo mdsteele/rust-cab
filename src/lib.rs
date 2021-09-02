@@ -94,10 +94,10 @@ extern crate flate2;
 
 mod internal;
 
-pub use internal::builder::{CabinetBuilder, CabinetWriter, FileBuilder,
+pub use crate::internal::builder::{CabinetBuilder, CabinetWriter, FileBuilder,
                             FileWriter, FolderBuilder};
-pub use internal::cabinet::{Cabinet, FileEntries, FileEntry, FileReader,
+pub use crate::internal::cabinet::{Cabinet, FileEntries, FileEntry, FileReader,
                             FolderEntries, FolderEntry};
-pub use internal::ctype::CompressionType;
+pub use crate::internal::ctype::CompressionType;
 
 // ========================================================================= //

@@ -1,10 +1,10 @@
 use byteorder::{LittleEndian, ReadBytesExt};
 use chrono::NaiveDateTime;
-use internal::checksum::Checksum;
-use internal::consts;
-use internal::ctype::CompressionType;
-use internal::datetime::datetime_from_bits;
-use internal::mszip::MsZipDecompressor;
+use crate::internal::checksum::Checksum;
+use crate::internal::consts;
+use crate::internal::ctype::CompressionType;
+use crate::internal::datetime::datetime_from_bits;
+use crate::internal::mszip::MsZipDecompressor;
 use std::io::{self, Read, Seek, SeekFrom};
 use std::slice;
 
