@@ -110,14 +110,7 @@ impl<R: Read + Seek> Cabinet<R> {
             }
             let date = reader.read_u16::<LittleEndian>()?;
             let time = reader.read_u16::<LittleEndian>()?;
-            let datetime = match datetime_from_bits(date, time) {
-                Some(dt) => dt,
-                None => {
-                    invalid_data!("Invalid date/time values ({} {})",
-                                  date,
-                                  time)
-                }
-            };
+            let datetime = datetime_from_bits(date, time);
             let attributes = reader.read_u16::<LittleEndian>()?;
             let is_utf8 = (attributes & consts::ATTR_NAME_IS_UTF) != 0;
             let name = read_null_terminated_string(&mut reader, is_utf8)?;
@@ -279,7 +272,7 @@ impl<'a> ExactSizeIterator for FileEntries<'a> {}
 /// Metadata about one file stored in a cabinet.
 pub struct FileEntry {
     name: String,
-    datetime: NaiveDateTime,
+    datetime: Option<NaiveDateTime>,
     uncompressed_size: u32,
     uncompressed_offset: u32,
     attributes: u16,
@@ -292,7 +285,9 @@ impl FileEntry {
     /// Returns the datetime for this file.  According to the CAB spec, this
     /// "is typically considered the 'last modified' time in local time, but
     /// the actual definition is application-defined".
-    pub fn datetime(&self) -> NaiveDateTime { self.datetime }
+    /// Note that this will return [None] if the datetime in the cabinet file
+    /// was not a valid date/time.
+    pub fn datetime(&self) -> Option<NaiveDateTime> { self.datetime }
 
     /// Returns the total size of the file when decompressed, in bytes.
     pub fn uncompressed_size(&self) -> u32 { self.uncompressed_size }
@@ -600,12 +595,14 @@ mod tests {
             let file = cabinet.get_file_entry("hi.txt").unwrap();
             assert_eq!(file.name(), "hi.txt");
             assert!(!file.is_name_utf());
-            assert_eq!(file.datetime().year(), 1997);
-            assert_eq!(file.datetime().month(), 3);
-            assert_eq!(file.datetime().day(), 12);
-            assert_eq!(file.datetime().hour(), 11);
-            assert_eq!(file.datetime().minute(), 13);
-            assert_eq!(file.datetime().second(), 52);
+            let dt = file.datetime().unwrap();
+
+            assert_eq!(dt.year(), 1997);
+            assert_eq!(dt.month(), 3);
+            assert_eq!(dt.day(), 12);
+            assert_eq!(dt.hour(), 11);
+            assert_eq!(dt.minute(), 13);
+            assert_eq!(dt.second(), 52);
         }
 
         let mut data = Vec::new();

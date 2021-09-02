@@ -146,7 +146,7 @@ fn list_file(folder_index: usize, folder: &FolderEntry, file: &FileEntry,
              folder_index,
              ctype,
              file_size,
-             file.datetime(),
+             file.datetime().map(|dt| dt.to_string()).unwrap_or("invalid datetime".to_string()),
              file.name());
 }
 

@@ -33,7 +33,7 @@ fn cabinet_with_one_small_uncompressed_text_file() {
     let mut cabinet = cab::Cabinet::new(Cursor::new(cab_file)).unwrap();
     {
         let file_entry = cabinet.get_file_entry("lorem_ipsum.txt").unwrap();
-        assert_eq!(file_entry.datetime(), datetime);
+        assert_eq!(file_entry.datetime(), Some(datetime));
         assert!(file_entry.is_read_only());
         assert!(!file_entry.is_hidden());
         assert!(file_entry.is_system());
