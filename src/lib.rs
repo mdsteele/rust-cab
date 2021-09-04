@@ -12,12 +12,12 @@
 //! metadata for an existing cabinet file, but currently only supports
 //! encoding/decoding some of them, as shown:
 //!
-//! | Compression                                                 | Supported |
-//! |-------------------------------------------------------------|-----------|
-//! | Uncompressed                                                | Yes       |
-//! | MSZIP ([Deflate](https://en.wikipedia.org/wiki/DEFLATE))    | Yes       |
-//! | [Quantum](https://en.wikipedia.org/wiki/Quantum_compression)| No        |
-//! | [LZX](https://en.wikipedia.org/wiki/LZX_(algorithm))        | No        |
+//! | Compression                                                 | Supported         |
+//! |-------------------------------------------------------------|-------------------|
+//! | Uncompressed                                                | Yes               |
+//! | MSZIP ([Deflate](https://en.wikipedia.org/wiki/DEFLATE))    | Yes               |
+//! | [Quantum](https://en.wikipedia.org/wiki/Quantum_compression)| No                |
+//! | [LZX](https://en.wikipedia.org/wiki/LZX_(algorithm))        | Yes (decode only) |
 //!
 //! # Example usage
 //!

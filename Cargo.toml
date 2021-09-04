@@ -13,6 +13,7 @@ readme = "README.md"
 byteorder = "1"
 chrono = "0.4"
 flate2 = { version = "1", features = ["rust_backend"], default-features = false }
+lzxd = "0.1.1"
 
 [dev-dependencies]
 anyhow = "1.0.43"
