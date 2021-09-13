@@ -28,8 +28,10 @@ fn seek_within_big_uncompressed_file() {
         let start = file_reader.seek(SeekFrom::End(-(offset as i64))).unwrap();
         let mut output = vec![0u8; 1000];
         file_reader.read_exact(&mut output).unwrap();
-        assert_eq!(&output as &[u8],
-                   &original_bytes[(start as usize)..][..1000]);
+        assert_eq!(
+            &output as &[u8],
+            &original_bytes[(start as usize)..][..1000]
+        );
         offset += 1000;
     }
 }
@@ -57,8 +59,10 @@ fn seek_within_big_mszipped_file() {
         let start = file_reader.seek(SeekFrom::End(-(offset as i64))).unwrap();
         let mut output = vec![0u8; 1000];
         file_reader.read_exact(&mut output).unwrap();
-        assert_eq!(&output as &[u8],
-                   &original_bytes[(start as usize)..][..1000]);
+        assert_eq!(
+            &output as &[u8],
+            &original_bytes[(start as usize)..][..1000]
+        );
         offset += 1000;
     }
 }

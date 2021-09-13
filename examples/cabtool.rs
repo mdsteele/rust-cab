@@ -17,35 +17,47 @@ fn main() {
         .version("0.1")
         .author("Matthew D. Steele <mdsteele@alum.mit.edu>")
         .about("Manipulates CAB files")
-        .subcommand(SubCommand::with_name("cat")
-                        .about("Concatenates and prints streams")
-                        .arg(Arg::with_name("cab").required(true))
-                        .arg(Arg::with_name("file").multiple(true)))
-        .subcommand(SubCommand::with_name("create")
-                        .about("Creates a new cabinet")
-                        .arg(Arg::with_name("compress")
-                                 .takes_value(true)
-                                 .value_name("TYPE")
-                                 .short("c")
-                                 .long("compress")
-                                 .help("Sets compression type"))
-                        .arg(Arg::with_name("output")
-                                 .takes_value(true)
-                                 .value_name("PATH")
-                                 .short("o")
-                                 .long("output")
-                                 .help("Sets output path"))
-                        .arg(Arg::with_name("file").multiple(true)))
-        .subcommand(SubCommand::with_name("ls")
-                        .about("Lists files in the cabinet")
-                        .arg(Arg::with_name("long")
-                                 .short("l")
-                                 .help("Lists in long format"))
-                        .arg(Arg::with_name("cab").required(true)))
+        .subcommand(
+            SubCommand::with_name("cat")
+                .about("Concatenates and prints streams")
+                .arg(Arg::with_name("cab").required(true))
+                .arg(Arg::with_name("file").multiple(true)),
+        )
+        .subcommand(
+            SubCommand::with_name("create")
+                .about("Creates a new cabinet")
+                .arg(
+                    Arg::with_name("compress")
+                        .takes_value(true)
+                        .value_name("TYPE")
+                        .short("c")
+                        .long("compress")
+                        .help("Sets compression type"),
+                )
+                .arg(
+                    Arg::with_name("output")
+                        .takes_value(true)
+                        .value_name("PATH")
+                        .short("o")
+                        .long("output")
+                        .help("Sets output path"),
+                )
+                .arg(Arg::with_name("file").multiple(true)),
+        )
+        .subcommand(
+            SubCommand::with_name("ls")
+                .about("Lists files in the cabinet")
+                .arg(
+                    Arg::with_name("long")
+                        .short("l")
+                        .help("Lists in long format"),
+                )
+                .arg(Arg::with_name("cab").required(true)),
+        )
         .get_matches();
     if let Some(submatches) = matches.subcommand_matches("cat") {
-        let mut cabinet = open_cab(submatches.value_of("cab").unwrap())
-            .unwrap();
+        let mut cabinet =
+            open_cab(submatches.value_of("cab").unwrap()).unwrap();
         if let Some(filenames) = submatches.values_of("file") {
             for filename in filenames {
                 let mut file_reader = cabinet.read_file(filename).unwrap();
@@ -117,8 +129,12 @@ fn main() {
 
 // ========================================================================= //
 
-fn list_file(folder_index: usize, folder: &FolderEntry, file: &FileEntry,
-             long: bool) {
+fn list_file(
+    folder_index: usize,
+    folder: &FolderEntry,
+    file: &FileEntry,
+    long: bool,
+) {
     if !long {
         println!("{}", file.name());
         return;
@@ -136,18 +152,22 @@ fn list_file(folder_index: usize, folder: &FolderEntry, file: &FileEntry,
     } else {
         format!("{} B ", file.uncompressed_size())
     };
-    println!("{}{}{}{}{}{} {:>2} {:<5} {:>10} {} {}",
-             if file.is_read_only() { 'R' } else { '-' },
-             if file.is_hidden() { 'H' } else { '-' },
-             if file.is_system() { 'S' } else { '-' },
-             if file.is_archive() { 'A' } else { '-' },
-             if file.is_exec() { 'E' } else { '-' },
-             if file.is_name_utf() { 'U' } else { '-' },
-             folder_index,
-             ctype,
-             file_size,
-             file.datetime().map(|dt| dt.to_string()).unwrap_or("invalid datetime".to_string()),
-             file.name());
+    println!(
+        "{}{}{}{}{}{} {:>2} {:<5} {:>10} {} {}",
+        if file.is_read_only() { 'R' } else { '-' },
+        if file.is_hidden() { 'H' } else { '-' },
+        if file.is_system() { 'S' } else { '-' },
+        if file.is_archive() { 'A' } else { '-' },
+        if file.is_exec() { 'E' } else { '-' },
+        if file.is_name_utf() { 'U' } else { '-' },
+        folder_index,
+        ctype,
+        file_size,
+        file.datetime()
+            .map(|dt| dt.to_string())
+            .unwrap_or("invalid datetime".to_string()),
+        file.name()
+    );
 }
 
 fn open_cab(path: &str) -> io::Result<Cabinet<File>> {

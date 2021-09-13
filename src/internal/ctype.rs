@@ -66,15 +66,15 @@ impl CompressionType {
             CompressionType::None => CTYPE_NONE,
             CompressionType::MsZip => CTYPE_MSZIP,
             CompressionType::Quantum(level, memory) => {
-                CTYPE_QUANTUM |
-                    (level.max(QUANTUM_LEVEL_MIN).min(QUANTUM_LEVEL_MAX) <<
-                        4) |
-                    (memory.max(QUANTUM_MEMORY_MIN).min(QUANTUM_MEMORY_MAX) <<
-                         8)
+                CTYPE_QUANTUM
+                    | (level.max(QUANTUM_LEVEL_MIN).min(QUANTUM_LEVEL_MAX)
+                        << 4)
+                    | (memory.max(QUANTUM_MEMORY_MIN).min(QUANTUM_MEMORY_MAX)
+                        << 8)
             }
             CompressionType::Lzx(window) => {
-                CTYPE_LZX |
-                    (window.max(LZX_WINDOW_MIN).min(LZX_WINDOW_MAX) << 8)
+                CTYPE_LZX
+                    | (window.max(LZX_WINDOW_MIN).min(LZX_WINDOW_MAX) << 8)
             }
         }
     }
@@ -96,14 +96,22 @@ mod tests {
 
     #[test]
     fn compression_type_from_bitfield() {
-        assert_eq!(CompressionType::from_bitfield(0x0).unwrap(),
-                   CompressionType::None);
-        assert_eq!(CompressionType::from_bitfield(0x1).unwrap(),
-                   CompressionType::MsZip);
-        assert_eq!(CompressionType::from_bitfield(0x1472).unwrap(),
-                   CompressionType::Quantum(7, 20));
-        assert_eq!(CompressionType::from_bitfield(0x1503).unwrap(),
-                   CompressionType::Lzx(21));
+        assert_eq!(
+            CompressionType::from_bitfield(0x0).unwrap(),
+            CompressionType::None
+        );
+        assert_eq!(
+            CompressionType::from_bitfield(0x1).unwrap(),
+            CompressionType::MsZip
+        );
+        assert_eq!(
+            CompressionType::from_bitfield(0x1472).unwrap(),
+            CompressionType::Quantum(7, 20)
+        );
+        assert_eq!(
+            CompressionType::from_bitfield(0x1503).unwrap(),
+            CompressionType::Lzx(21)
+        );
     }
 }
 

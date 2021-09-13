@@ -16,8 +16,8 @@ fn cabinet_with_one_small_uncompressed_text_file() {
 
     let mut cab_builder = cab::CabinetBuilder::new();
     {
-        let folder_builder = cab_builder
-            .add_folder(cab::CompressionType::None);
+        let folder_builder =
+            cab_builder.add_folder(cab::CompressionType::None);
         let file_builder = folder_builder.add_file("lorem_ipsum.txt");
         file_builder.set_datetime(datetime);
         file_builder.set_is_read_only(true);
@@ -60,8 +60,10 @@ fn cabinet_with_one_small_mszipped_text_file() {
     let cab_file = cab_writer.finish().unwrap().into_inner();
 
     let mut cabinet = cab::Cabinet::new(Cursor::new(cab_file)).unwrap();
-    assert_eq!(cabinet.folder_entries().nth(0).unwrap().compression_type(),
-               cab::CompressionType::MsZip);
+    assert_eq!(
+        cabinet.folder_entries().nth(0).unwrap().compression_type(),
+        cab::CompressionType::MsZip
+    );
     let mut output = Vec::new();
     let mut file_reader = cabinet.read_file("lorem_ipsum.txt").unwrap();
     file_reader.read_to_end(&mut output).unwrap();

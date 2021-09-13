@@ -12,12 +12,16 @@
 //! metadata for an existing cabinet file, but currently only supports
 //! encoding/decoding some of them, as shown:
 //!
-//! | Compression                                                 | Supported         |
-//! |-------------------------------------------------------------|-------------------|
-//! | Uncompressed                                                | Yes               |
-//! | MSZIP ([Deflate](https://en.wikipedia.org/wiki/DEFLATE))    | Yes               |
-//! | [Quantum](https://en.wikipedia.org/wiki/Quantum_compression)| No                |
-//! | [LZX](https://en.wikipedia.org/wiki/LZX_(algorithm))        | Yes (decode only) |
+//! | Compression                | Supported         |
+//! |----------------------------|-------------------|
+//! | Uncompressed               | Yes               |
+//! | MSZIP ([Deflate][deflate]) | Yes               |
+//! | [Quantum][quantum]         | No                |
+//! | [LZX][lzx]                 | Yes (decode only) |
+//!
+//! [deflate]: https://en.wikipedia.org/wiki/DEFLATE
+//! [quantum]: https://en.wikipedia.org/wiki/Quantum_compression
+//! [lzx]: https://en.wikipedia.org/wiki/LZX_(algorithm)
 //!
 //! # Example usage
 //!
@@ -94,10 +98,12 @@ extern crate flate2;
 
 mod internal;
 
-pub use crate::internal::builder::{CabinetBuilder, CabinetWriter, FileBuilder,
-                            FileWriter, FolderBuilder};
-pub use crate::internal::cabinet::{Cabinet, FileEntries, FileEntry, FileReader,
-                            FolderEntries, FolderEntry};
+pub use crate::internal::builder::{
+    CabinetBuilder, CabinetWriter, FileBuilder, FileWriter, FolderBuilder,
+};
+pub use crate::internal::cabinet::{
+    Cabinet, FileEntries, FileEntry, FileReader, FolderEntries, FolderEntry,
+};
 pub use crate::internal::ctype::CompressionType;
 
 // ========================================================================= //

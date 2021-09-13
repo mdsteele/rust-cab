@@ -1,10 +1,10 @@
-use byteorder::{LittleEndian, WriteBytesExt};
-use chrono::{Local, NaiveDateTime};
 use crate::internal::checksum::Checksum;
 use crate::internal::consts;
 use crate::internal::ctype::CompressionType;
 use crate::internal::datetime::datetime_to_bits;
 use crate::internal::mszip::MsZipCompressor;
+use byteorder::{LittleEndian, WriteBytesExt};
+use chrono::{Local, NaiveDateTime};
 use std::io::{self, Seek, SeekFrom, Write};
 use std::mem;
 use std::u16;
@@ -30,7 +30,7 @@ impl FileBuilder {
     fn new(name: String) -> FileBuilder {
         let name_is_utf = name.bytes().any(|byte| byte > 0x7f);
         let mut builder = FileBuilder {
-            name: name,
+            name,
             attributes: consts::ATTR_ARCH,
             datetime: Local::now().naive_local(),
             entry_offset: 0, // filled in later by CabinetWriter
@@ -140,16 +140,15 @@ pub struct CabinetBuilder {
 impl CabinetBuilder {
     /// Creates a new, empty `CabinetBuilder`.
     pub fn new() -> CabinetBuilder {
-        CabinetBuilder {
-            folders: Vec::new(),
-            reserve_data: Vec::new(),
-        }
+        CabinetBuilder { folders: Vec::new(), reserve_data: Vec::new() }
     }
 
     /// Adds a new folder to the cabinet.  Use the returned `FolderBuilder` to
     /// add files to the folder or to change other settings on the folder.
-    pub fn add_folder(&mut self, ctype: CompressionType)
-                      -> &mut FolderBuilder {
+    pub fn add_folder(
+        &mut self,
+        ctype: CompressionType,
+    ) -> &mut FolderBuilder {
         self.folders.push(FolderBuilder::new(ctype));
         self.folders.last_mut().unwrap()
     }
@@ -163,8 +162,10 @@ impl CabinetBuilder {
 
     /// Locks in the cabinet settings and returns a `CabinetWriter` object that
     /// will write the cabinet file into the given writer.
-    pub fn build<W: Write + Seek>(self, writer: W)
-                                  -> io::Result<CabinetWriter<W>> {
+    pub fn build<W: Write + Seek>(
+        self,
+        writer: W,
+    ) -> io::Result<CabinetWriter<W>> {
         CabinetWriter::start(writer, self)
     }
 }
@@ -200,29 +201,37 @@ impl<W: Write + Seek> InnerCabinetWriter<W> {
 }
 
 impl<W: Write + Seek> CabinetWriter<W> {
-    fn start(mut writer: W, mut builder: CabinetBuilder)
-             -> io::Result<CabinetWriter<W>> {
+    fn start(
+        mut writer: W,
+        mut builder: CabinetBuilder,
+    ) -> io::Result<CabinetWriter<W>> {
         let num_folders = builder.folders.len();
         if num_folders > consts::MAX_NUM_FOLDERS {
-            invalid_input!("Cabinet has too many folders ({}; max is {})",
-                           num_folders,
-                           consts::MAX_NUM_FOLDERS);
+            invalid_input!(
+                "Cabinet has too many folders ({}; max is {})",
+                num_folders,
+                consts::MAX_NUM_FOLDERS
+            );
         }
 
         let num_files: usize =
             builder.folders.iter().map(|folder| folder.files.len()).sum();
         if num_files > consts::MAX_NUM_FILES {
-            invalid_input!("Cabinet has too many files ({}; max is {})",
-                           num_files,
-                           consts::MAX_NUM_FILES);
+            invalid_input!(
+                "Cabinet has too many files ({}; max is {})",
+                num_files,
+                consts::MAX_NUM_FILES
+            );
         }
 
         let header_reserve_size = builder.reserve_data.len();
         if header_reserve_size > consts::MAX_HEADER_RESERVE_SIZE {
-            invalid_input!("Cabinet header reserve data is too large \
-                            ({} bytes; max is {} bytes)",
-                           header_reserve_size,
-                           consts::MAX_HEADER_RESERVE_SIZE);
+            invalid_input!(
+                "Cabinet header reserve data is too large \
+                 ({} bytes; max is {} bytes)",
+                header_reserve_size,
+                consts::MAX_HEADER_RESERVE_SIZE
+            );
         }
 
         let folder_reserve_size = builder
@@ -232,10 +241,12 @@ impl<W: Write + Seek> CabinetWriter<W> {
             .max()
             .unwrap_or(0);
         if folder_reserve_size > consts::MAX_FOLDER_RESERVE_SIZE {
-            invalid_input!("Cabinet folder reserve data is too large \
-                            ({} bytes; max is {} bytes)",
-                           folder_reserve_size,
-                           consts::MAX_FOLDER_RESERVE_SIZE);
+            invalid_input!(
+                "Cabinet folder reserve data is too large \
+                 ({} bytes; max is {} bytes)",
+                folder_reserve_size,
+                consts::MAX_FOLDER_RESERVE_SIZE
+            );
         }
 
         let mut flags: u16 = 0;
@@ -248,8 +259,8 @@ impl<W: Write + Seek> CabinetWriter<W> {
             first_folder_offset += 4 + header_reserve_size as u32;
         }
         let folder_entry_size = 8 + folder_reserve_size as u32;
-        let first_file_offset = first_folder_offset +
-            (num_folders as u32) * folder_entry_size;
+        let first_file_offset =
+            first_folder_offset + (num_folders as u32) * folder_entry_size;
 
         // Write cabinet header:
         writer.write_u32::<LittleEndian>(consts::FILE_SIGNATURE)?;
@@ -280,8 +291,8 @@ impl<W: Write + Seek> CabinetWriter<W> {
 
         // Write structs for folders:
         for (index, folder) in builder.folders.iter_mut().enumerate() {
-            folder.entry_offset = first_folder_offset +
-                (index as u32) * folder_entry_size;
+            folder.entry_offset =
+                first_folder_offset + (index as u32) * folder_entry_size;
             writer.write_u32::<LittleEndian>(0)?; // first data, filled later
             writer.write_u16::<LittleEndian>(0)?; // num data, filled later
             let ctype_bits = folder.compression_type.to_bitfield();
@@ -315,12 +326,12 @@ impl<W: Write + Seek> CabinetWriter<W> {
         }
 
         Ok(CabinetWriter {
-               writer: InnerCabinetWriter::Raw(writer),
-               builder: builder,
-               current_folder_index: 0,
-               next_file_index: 0,
-               offset_within_folder: 0,
-           })
+            writer: InnerCabinetWriter::Raw(writer),
+            builder,
+            current_folder_index: 0,
+            next_file_index: 0,
+            offset_within_folder: 0,
+        })
     }
 
     /// Returns a `FileWriter` for the next file within that cabinet that needs
@@ -337,16 +348,17 @@ impl<W: Write + Seek> CabinetWriter<W> {
             let num_files =
                 self.builder.folders[self.current_folder_index].files.len();
             if self.next_file_index < num_files {
-                let folder = &mut self.builder.folders
-                    [self.current_folder_index];
+                let folder =
+                    &mut self.builder.folders[self.current_folder_index];
                 if self.next_file_index == 0 {
                     // Begin folder:
                     match self.writer.take() {
                         InnerCabinetWriter::Raw(writer) => {
-                            let folder_writer =
-                                FolderWriter::new(writer,
-                                                  folder.compression_type,
-                                                  folder.entry_offset)?;
+                            let folder_writer = FolderWriter::new(
+                                writer,
+                                folder.compression_type,
+                                folder.entry_offset,
+                            )?;
                             self.writer =
                                 InnerCabinetWriter::Folder(folder_writer);
                         }
@@ -356,10 +368,12 @@ impl<W: Write + Seek> CabinetWriter<W> {
                 // Begin next file:
                 let file = &mut folder.files[self.next_file_index];
                 if self.offset_within_folder > (u32::MAX as u64) {
-                    invalid_data!("Folder is overfull \
-                                   (file offset of {} bytes, max is {} bytes)",
-                                  self.offset_within_folder,
-                                  u32::MAX);
+                    invalid_data!(
+                        "Folder is overfull \
+                         (file offset of {} bytes, max is {} bytes)",
+                        self.offset_within_folder,
+                        u32::MAX
+                    );
                 }
                 file.offset_within_folder = self.offset_within_folder as u32;
                 let file_writer = match self.writer {
@@ -374,8 +388,8 @@ impl<W: Write + Seek> CabinetWriter<W> {
             // End folder:
             match self.writer.take() {
                 InnerCabinetWriter::Folder(folder_writer) => {
-                    let folder = &self.builder.folders
-                        [self.current_folder_index];
+                    let folder =
+                        &self.builder.folders[self.current_folder_index];
                     let writer = folder_writer.finish(&folder.files)?;
                     self.writer = InnerCabinetWriter::Raw(writer);
                 }
@@ -403,10 +417,12 @@ impl<W: Write + Seek> CabinetWriter<W> {
             InnerCabinetWriter::Raw(ref mut writer) => {
                 let cabinet_file_size = writer.seek(SeekFrom::Current(0))?;
                 if cabinet_file_size > (consts::MAX_TOTAL_CAB_SIZE as u64) {
-                    invalid_data!("Cabinet file is too large \
-                                   ({} bytes; max is {} bytes)",
-                                  cabinet_file_size,
-                                  consts::MAX_TOTAL_CAB_SIZE);
+                    invalid_data!(
+                        "Cabinet file is too large \
+                         ({} bytes; max is {} bytes)",
+                        cabinet_file_size,
+                        consts::MAX_TOTAL_CAB_SIZE
+                    );
                 }
                 writer.seek(SeekFrom::Start(8))?;
                 writer.write_u32::<LittleEndian>(cabinet_file_size as u32)?;
@@ -436,17 +452,17 @@ pub struct FileWriter<'a, W: 'a + Write + Seek> {
 }
 
 impl<'a, W: Write + Seek> FileWriter<'a, W> {
-    fn new(folder_writer: &'a mut FolderWriter<W>,
-           file_builder: &'a mut FileBuilder)
-           -> FileWriter<'a, W> {
-        FileWriter {
-            folder_writer: folder_writer,
-            file_builder: file_builder,
-        }
+    fn new(
+        folder_writer: &'a mut FolderWriter<W>,
+        file_builder: &'a mut FileBuilder,
+    ) -> FileWriter<'a, W> {
+        FileWriter { folder_writer, file_builder }
     }
 
     /// Returns the name of the file being written.
-    pub fn file_name(&self) -> &str { &self.file_builder.name }
+    pub fn file_name(&self) -> &str {
+        &self.file_builder.name
+    }
 }
 
 impl<'a, W: Write + Seek> Write for FileWriter<'a, W> {
@@ -455,18 +471,22 @@ impl<'a, W: Write + Seek> Write for FileWriter<'a, W> {
             return Ok(0);
         }
         if self.file_builder.uncompressed_size == consts::MAX_FILE_SIZE {
-            invalid_input!("File is already at maximum size of {} bytes",
-                           consts::MAX_FILE_SIZE);
+            invalid_input!(
+                "File is already at maximum size of {} bytes",
+                consts::MAX_FILE_SIZE
+            );
         }
-        let remaining = consts::MAX_FILE_SIZE -
-            self.file_builder.uncompressed_size;
+        let remaining =
+            consts::MAX_FILE_SIZE - self.file_builder.uncompressed_size;
         let max_bytes = (buf.len() as u64).min(remaining as u64) as usize;
         let bytes_written = self.folder_writer.write(&buf[0..max_bytes])?;
         self.file_builder.uncompressed_size += bytes_written as u32;
         Ok(bytes_written)
     }
 
-    fn flush(&mut self) -> io::Result<()> { self.folder_writer.flush() }
+    fn flush(&mut self) -> io::Result<()> {
+        self.folder_writer.flush()
+    }
 }
 
 // ========================================================================= //
@@ -489,15 +509,19 @@ enum FolderCompressor {
 }
 
 impl<W: Write + Seek> FolderWriter<W> {
-    fn new(mut writer: W, compression_type: CompressionType,
-           folder_entry_offset: u32)
-           -> io::Result<FolderWriter<W>> {
+    fn new(
+        mut writer: W,
+        compression_type: CompressionType,
+        folder_entry_offset: u32,
+    ) -> io::Result<FolderWriter<W>> {
         let current_offset = writer.seek(SeekFrom::Current(0))?;
         if current_offset > (consts::MAX_TOTAL_CAB_SIZE as u64) {
-            invalid_data!("Cabinet file is too large \
-                           (already {} bytes; max is {} bytes)",
-                          current_offset,
-                          consts::MAX_TOTAL_CAB_SIZE);
+            invalid_data!(
+                "Cabinet file is too large \
+                 (already {} bytes; max is {} bytes)",
+                current_offset,
+                consts::MAX_TOTAL_CAB_SIZE
+            );
         }
         let compressor = match compression_type {
             CompressionType::None => FolderCompressor::Uncompressed,
@@ -512,15 +536,14 @@ impl<W: Write + Seek> FolderWriter<W> {
             }
         };
         Ok(FolderWriter {
-               writer: writer,
-               compressor: compressor,
-               folder_entry_offset: folder_entry_offset,
-               first_data_block_offset: current_offset as u32,
-               next_data_block_offset: current_offset,
-               num_data_blocks: 0,
-               data_block_buffer:
-                   Vec::with_capacity(MAX_UNCOMPRESSED_BLOCK_SIZE),
-           })
+            writer,
+            compressor,
+            folder_entry_offset,
+            first_data_block_offset: current_offset as u32,
+            next_data_block_offset: current_offset,
+            num_data_blocks: 0,
+            data_block_buffer: Vec::with_capacity(MAX_UNCOMPRESSED_BLOCK_SIZE),
+        })
     }
 
     fn finish(mut self, files: &[FileBuilder]) -> io::Result<W> {
@@ -550,9 +573,8 @@ impl<W: Write + Seek> FolderWriter<W> {
                 mem::replace(&mut self.data_block_buffer, empty)
             }
             FolderCompressor::MsZip(ref mut compressor) => {
-                let compressed =
-                    compressor.compress_block(&self.data_block_buffer,
-                                              is_last_block)?;
+                let compressed = compressor
+                    .compress_block(&self.data_block_buffer, is_last_block)?;
                 self.data_block_buffer.clear();
                 compressed
             }
@@ -560,8 +582,8 @@ impl<W: Write + Seek> FolderWriter<W> {
         let compressed_size = compressed.len() as u16;
         let mut checksum = Checksum::new();
         checksum.append(&compressed);
-        let checksum_value = checksum.value() ^
-            ((compressed_size as u32) | ((uncompressed_size as u32) << 16));
+        let checksum_value = checksum.value()
+            ^ ((compressed_size as u32) | ((uncompressed_size as u32) << 16));
         let total_data_block_size = 8 + compressed_size as u64;
         self.writer.seek(SeekFrom::Start(self.next_data_block_offset))?;
         self.writer.write_u32::<LittleEndian>(checksum_value)?;
@@ -591,7 +613,9 @@ impl<W: Write + Seek> Write for FolderWriter<W> {
         Ok(max_bytes)
     }
 
-    fn flush(&mut self) -> io::Result<()> { self.writer.flush() }
+    fn flush(&mut self) -> io::Result<()> {
+        self.writer.flush()
+    }
 }
 
 // ========================================================================= //
@@ -599,8 +623,8 @@ impl<W: Write + Seek> Write for FolderWriter<W> {
 #[cfg(test)]
 mod tests {
     use super::CabinetBuilder;
-    use chrono::NaiveDate;
     use crate::internal::ctype::CompressionType;
+    use chrono::NaiveDate;
     use std::io::{Cursor, Write};
 
     #[test]
@@ -643,8 +667,7 @@ mod tests {
             file_writer.write_all(data).unwrap();
         }
         let output = cab_writer.finish().unwrap().into_inner();
-        let expected: &[u8] =
-            b"MSCF\0\0\0\0\x80\0\0\0\0\0\0\0\
+        let expected: &[u8] = b"MSCF\0\0\0\0\x80\0\0\0\0\0\0\0\
             \x2c\0\0\0\0\0\0\0\x03\x01\x01\0\x02\0\0\0\0\0\0\0\
             \x5b\0\0\0\x01\0\0\0\
             \x0e\0\0\0\0\0\0\0\0\0\x26\x4c\x75\x7a\x20\0hi.txt\0\

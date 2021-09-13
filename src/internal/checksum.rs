@@ -8,11 +8,7 @@ pub struct Checksum {
 
 impl Checksum {
     pub fn new() -> Checksum {
-        Checksum {
-            value: 0,
-            remainder: 0,
-            remainder_shift: 0,
-        }
+        Checksum { value: 0, remainder: 0, remainder_shift: 0 }
     }
 
     pub fn value(&self) -> u32 {
@@ -20,13 +16,15 @@ impl Checksum {
             0 => self.value,
             8 => self.value ^ self.remainder,
             16 => {
-                self.value ^ (self.remainder >> 8) ^
-                    ((self.remainder & 0xff) << 8)
+                self.value
+                    ^ (self.remainder >> 8)
+                    ^ ((self.remainder & 0xff) << 8)
             }
             24 => {
-                self.value ^ (self.remainder >> 16) ^
-                    (self.remainder & 0xff00) ^
-                    ((self.remainder & 0xff) << 16)
+                self.value
+                    ^ (self.remainder >> 16)
+                    ^ (self.remainder & 0xff00)
+                    ^ ((self.remainder & 0xff) << 16)
             }
             _ => unreachable!(),
         }
@@ -72,12 +70,14 @@ mod tests {
     fn checksum_from_cab_spec() {
         // This comes from the example cabinet file found in the CAB spec.
         let mut checksum = Checksum::new();
-        checksum.append(b"\x97\0\x97\0#include <stdio.h>\r\n\r\n\
-                          void main(void)\r\n{\r\n    \
-                          printf(\"Hello, world!\\n\");\r\n}\r\n\
-                          #include <stdio.h>\r\n\r\n\
-                          void main(void)\r\n{\r\n    \
-                          printf(\"Welcome!\\n\");\r\n}\r\n\r\n");
+        checksum.append(
+            b"\x97\0\x97\0#include <stdio.h>\r\n\r\n\
+              void main(void)\r\n{\r\n    \
+              printf(\"Hello, world!\\n\");\r\n}\r\n\
+              #include <stdio.h>\r\n\r\n\
+              void main(void)\r\n{\r\n    \
+              printf(\"Welcome!\\n\");\r\n}\r\n\r\n",
+        );
         assert_eq!(checksum.value(), 0x30a65abd);
     }
 }

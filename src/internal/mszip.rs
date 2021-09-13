@@ -23,8 +23,11 @@ impl MsZipCompressor {
         }
     }
 
-    pub fn compress_block(&mut self, data: &[u8], is_last_block: bool)
-                          -> io::Result<Vec<u8>> {
+    pub fn compress_block(
+        &mut self,
+        data: &[u8],
+        is_last_block: bool,
+    ) -> io::Result<Vec<u8>> {
         debug_assert!(data.len() <= 0x8000);
         let mut out = Vec::<u8>::with_capacity(0xffff);
         out.write_u16::<LittleEndian>(MSZIP_SIGNATURE)?;
@@ -70,14 +73,18 @@ impl MsZipDecompressor {
         }
     }
 
-    pub fn decompress_block(&mut self, data: &[u8], uncompressed_size: u16)
-                            -> io::Result<Vec<u8>> {
+    pub fn decompress_block(
+        &mut self,
+        data: &[u8],
+        uncompressed_size: u16,
+    ) -> io::Result<Vec<u8>> {
         // Check signature:
-        if data.len() < (MSZIP_SIGNATURE_LEN as usize) ||
-            ((data[0] as u16) | ((data[1] as u16) << 8)) != MSZIP_SIGNATURE
+        if data.len() < (MSZIP_SIGNATURE_LEN as usize)
+            || ((data[0] as u16) | ((data[1] as u16) << 8)) != MSZIP_SIGNATURE
         {
-            invalid_data!("MSZIP decompression failed: \
-                           Invalid block signature");
+            invalid_data!(
+                "MSZIP decompression failed: Invalid block signature"
+            );
         }
         let data = &data[MSZIP_SIGNATURE_LEN..];
         // Reset decompressor with appropriate dictionary:
@@ -107,10 +114,12 @@ impl MsZipDecompressor {
             }
         }
         if out.len() != uncompressed_size as usize {
-            invalid_data!("MSZIP decompression failed: Incorrect uncompressed \
-                           size (expected {}, was actually {})",
-                          uncompressed_size,
-                          out.len());
+            invalid_data!(
+                "MSZIP decompression failed: Incorrect uncompressed size \
+                 (expected {}, was actually {})",
+                uncompressed_size,
+                out.len()
+            );
         }
         // Update dictionary for next block:
         if out.len() >= DEFLATE_MAX_DICT_LEN {
@@ -134,7 +143,7 @@ impl MsZipDecompressor {
 mod tests {
     extern crate rand;
     use self::rand::Rng;
-    use super::{DEFLATE_MAX_DICT_LEN, MsZipCompressor, MsZipDecompressor};
+    use super::{MsZipCompressor, MsZipDecompressor, DEFLATE_MAX_DICT_LEN};
 
     #[test]
     fn read_compressed_data() {
@@ -230,10 +239,11 @@ mod tests {
         pub fn do_system_compress(data: &[u8]) -> Vec<(usize, Vec<u8>)> {
             let handle = unsafe {
                 let mut handle: COMPRESSOR_HANDLE = mem::uninitialized();
-                if CreateCompressor(COMPRESS_ALGORITHM_MSZIP | COMPRESS_RAW,
-                                    ptr::null_mut(),
-                                    &mut handle as PCOMPRESSOR_HANDLE) !=
-                    TRUE
+                if CreateCompressor(
+                    COMPRESS_ALGORITHM_MSZIP | COMPRESS_RAW,
+                    ptr::null_mut(),
+                    &mut handle as PCOMPRESSOR_HANDLE,
+                ) != TRUE
                 {
                     panic!("CreateCompressor failed");
                 }
@@ -244,13 +254,14 @@ mod tests {
                 let mut buffer = vec![0; 0xffff];
                 unsafe {
                     let mut compressed_size: SIZE_T = mem::uninitialized();
-                    if Compress(handle,
-                                slice.as_ptr() as PVOID,
-                                slice.len() as SIZE_T,
-                                buffer.as_ptr() as PVOID,
-                                buffer.len() as SIZE_T,
-                                &mut compressed_size as PSIZE_T) ==
-                        FALSE
+                    if Compress(
+                        handle,
+                        slice.as_ptr() as PVOID,
+                        slice.len() as SIZE_T,
+                        buffer.as_ptr() as PVOID,
+                        buffer.len() as SIZE_T,
+                        &mut compressed_size as PSIZE_T,
+                    ) == FALSE
                     {
                         panic!("Compress failed");
                     }
@@ -267,11 +278,11 @@ mod tests {
         pub fn do_system_decompress(blocks: Vec<(usize, Vec<u8>)>) -> Vec<u8> {
             let handle = unsafe {
                 let mut handle: DECOMPRESSOR_HANDLE = mem::uninitialized();
-                if CreateDecompressor(COMPRESS_ALGORITHM_MSZIP |
-                                          COMPRESS_RAW,
-                                      ptr::null_mut(),
-                                      &mut handle as PDECOMPRESSOR_HANDLE) !=
-                    TRUE
+                if CreateDecompressor(
+                    COMPRESS_ALGORITHM_MSZIP | COMPRESS_RAW,
+                    ptr::null_mut(),
+                    &mut handle as PDECOMPRESSOR_HANDLE,
+                ) != TRUE
                 {
                     panic!("CreateDecompressor failed");
                 }
@@ -285,13 +296,14 @@ mod tests {
                 let last = buffer.len();
                 buffer.resize(last + original_size, 0);
                 unsafe {
-                    if Decompress(handle,
-                                  block.as_ptr() as PVOID,
-                                  block.len() as SIZE_T,
-                                  buffer[last..].as_mut_ptr() as PVOID,
-                                  original_size as SIZE_T,
-                                  ptr::null_mut()) ==
-                        FALSE
+                    if Decompress(
+                        handle,
+                        block.as_ptr() as PVOID,
+                        block.len() as SIZE_T,
+                        buffer[last..].as_mut_ptr() as PVOID,
+                        original_size as SIZE_T,
+                        ptr::null_mut(),
+                    ) == FALSE
                     {
                         panic!("Decompress failed");
                     }
@@ -322,9 +334,11 @@ mod tests {
         let mut output = Vec::<u8>::new();
         let mut decompressor = MsZipDecompressor::new();
         for (size, compressed) in blocks.into_iter() {
-            output.append(&mut decompressor
-                              .decompress_block(&compressed, size as u16)
-                              .unwrap());
+            output.append(
+                &mut decompressor
+                    .decompress_block(&compressed, size as u16)
+                    .unwrap(),
+            );
         }
         output
     }
@@ -338,8 +352,10 @@ mod tests {
                 fn lib_to_lib() {
                     let original: &[u8] = $data;
                     let compressed = do_lib_compress(original);
-                    assert_eq!(do_lib_decompress(compressed).as_slice(),
-                               original);
+                    assert_eq!(
+                        do_lib_decompress(compressed).as_slice(),
+                        original
+                    );
                 }
 
                 #[cfg(target_env = "msvc")]
@@ -349,7 +365,8 @@ mod tests {
                     let compressed = do_lib_compress(original);
                     assert_eq!(
                         sys::do_system_decompress(compressed).as_slice(),
-                        original);
+                        original
+                    );
                 }
 
                 #[cfg(target_env = "msvc")]
@@ -357,40 +374,57 @@ mod tests {
                 fn sys_to_lib() {
                     let original: &[u8] = $data;
                     let compressed = sys::do_system_compress(original);
-                    assert_eq!(do_lib_decompress(compressed).as_slice(),
-                               original);
+                    assert_eq!(
+                        do_lib_decompress(compressed).as_slice(),
+                        original
+                    );
                 }
             }
-        }
+        };
     }
 
     round_trip_tests!(
         lorem_ipsum,
         b"Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed \
-          do eiusmod tempor incididunt ut labore et dolore magna aliqua.");
+          do eiusmod tempor incididunt ut labore et dolore magna aliqua."
+    );
 
-    round_trip_tests!(one_block_exactly,
-                      &repeating_data(DEFLATE_MAX_DICT_LEN));
-    round_trip_tests!(one_block_less_a_byte,
-                      &repeating_data(DEFLATE_MAX_DICT_LEN - 1));
-    round_trip_tests!(one_block_plus_a_byte,
-                      &repeating_data(DEFLATE_MAX_DICT_LEN + 1));
+    round_trip_tests!(
+        one_block_exactly,
+        &repeating_data(DEFLATE_MAX_DICT_LEN)
+    );
+    round_trip_tests!(
+        one_block_less_a_byte,
+        &repeating_data(DEFLATE_MAX_DICT_LEN - 1)
+    );
+    round_trip_tests!(
+        one_block_plus_a_byte,
+        &repeating_data(DEFLATE_MAX_DICT_LEN + 1)
+    );
 
     round_trip_tests!(zeros_one_block, &[0u8; 1000]);
     round_trip_tests!(zeros_two_blocks, &[0u8; DEFLATE_MAX_DICT_LEN + 1000]);
     round_trip_tests!(zeros_many_blocks, &[0u8; DEFLATE_MAX_DICT_LEN * 10]);
 
     round_trip_tests!(repeating_one_block, &repeating_data(1000));
-    round_trip_tests!(repeating_two_blocks,
-                      &repeating_data(DEFLATE_MAX_DICT_LEN + 1000));
-    round_trip_tests!(repeating_many_blocks,
-                      &repeating_data(DEFLATE_MAX_DICT_LEN * 10));
+    round_trip_tests!(
+        repeating_two_blocks,
+        &repeating_data(DEFLATE_MAX_DICT_LEN + 1000)
+    );
+    round_trip_tests!(
+        repeating_many_blocks,
+        &repeating_data(DEFLATE_MAX_DICT_LEN * 10)
+    );
 
     round_trip_tests!(random_one_block, &random_data(1000));
-    round_trip_tests!(random_two_blocks,
-                      &random_data(DEFLATE_MAX_DICT_LEN + 1000));
-    round_trip_tests!(random_many_blocks,
-                      &random_data(DEFLATE_MAX_DICT_LEN * 10));
+    round_trip_tests!(
+        random_two_blocks,
+        &random_data(DEFLATE_MAX_DICT_LEN + 1000)
+    );
+    round_trip_tests!(
+        random_many_blocks,
+        &random_data(DEFLATE_MAX_DICT_LEN * 10)
+    );
 }
 
 // ========================================================================= //

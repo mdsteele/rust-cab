@@ -1,10 +1,10 @@
-use byteorder::{LittleEndian, ReadBytesExt};
-use chrono::NaiveDateTime;
 use crate::internal::checksum::Checksum;
 use crate::internal::consts;
 use crate::internal::ctype::CompressionType;
 use crate::internal::datetime::datetime_from_bits;
 use crate::internal::mszip::MsZipDecompressor;
+use byteorder::{LittleEndian, ReadBytesExt};
+use chrono::NaiveDateTime;
 use lzxd::Lzxd;
 use std::io::{self, Read, Seek, SeekFrom};
 use std::slice;
@@ -31,23 +31,27 @@ impl<R: Read + Seek> Cabinet<R> {
         let _reserved1 = reader.read_u32::<LittleEndian>()?;
         let total_size = reader.read_u32::<LittleEndian>()?;
         if total_size > consts::MAX_TOTAL_CAB_SIZE {
-            invalid_data!("Cabinet total size field is too large \
-                           ({} bytes; max is {} bytes)",
-                          total_size,
-                          consts::MAX_TOTAL_CAB_SIZE);
+            invalid_data!(
+                "Cabinet total size field is too large \
+                 ({} bytes; max is {} bytes)",
+                total_size,
+                consts::MAX_TOTAL_CAB_SIZE
+            );
         }
         let _reserved2 = reader.read_u32::<LittleEndian>()?;
         let first_file_offset = reader.read_u32::<LittleEndian>()?;
         let _reserved3 = reader.read_u32::<LittleEndian>()?;
         let minor_version = reader.read_u8()?;
         let major_version = reader.read_u8()?;
-        if major_version > consts::VERSION_MAJOR ||
-            major_version == consts::VERSION_MAJOR &&
-                minor_version > consts::VERSION_MINOR
+        if major_version > consts::VERSION_MAJOR
+            || major_version == consts::VERSION_MAJOR
+                && minor_version > consts::VERSION_MINOR
         {
-            invalid_data!("Version {}.{} cabinet files are not supported",
-                          major_version,
-                          minor_version);
+            invalid_data!(
+                "Version {}.{} cabinet files are not supported",
+                major_version,
+                minor_version
+            );
         }
         let num_folders = reader.read_u16::<LittleEndian>()? as usize;
         let num_files = reader.read_u16::<LittleEndian>()?;
@@ -94,8 +98,8 @@ impl<R: Read + Seek> Cabinet<R> {
             }
             let entry = FolderEntry {
                 first_data_block_offset: first_data_offset,
-                num_data_blocks: num_data_blocks,
-                compression_type: compression_type,
+                num_data_blocks,
+                compression_type,
                 reserve_data: folder_reserve_data,
                 files: Vec::new(),
             };
@@ -116,34 +120,40 @@ impl<R: Read + Seek> Cabinet<R> {
             let is_utf8 = (attributes & consts::ATTR_NAME_IS_UTF) != 0;
             let name = read_null_terminated_string(&mut reader, is_utf8)?;
             let entry = FileEntry {
-                name: name,
-                datetime: datetime,
-                uncompressed_size: uncompressed_size,
-                uncompressed_offset: uncompressed_offset,
-                attributes: attributes,
+                name,
+                datetime,
+                uncompressed_size,
+                uncompressed_offset,
+                attributes,
             };
             folders[folder_index].files.push(entry);
         }
         Ok(Cabinet {
-               reader: reader,
-               cabinet_set_id: cabinet_set_id,
-               cabinet_set_index: cabinet_set_index,
-               data_reserve_size: data_reserve_size,
-               reserve_data: header_reserve_data,
-               folders: folders,
-           })
+            reader,
+            cabinet_set_id,
+            cabinet_set_index,
+            data_reserve_size,
+            reserve_data: header_reserve_data,
+            folders,
+        })
     }
 
     /// Returns the cabinet set ID for this cabinet (an arbitrary number used
     /// to group together a set of cabinets).
-    pub fn cabinet_set_id(&self) -> u16 { self.cabinet_set_id }
+    pub fn cabinet_set_id(&self) -> u16 {
+        self.cabinet_set_id
+    }
 
     /// Returns this cabinet's (zero-based) index within its cabinet set.
-    pub fn cabinet_set_index(&self) -> u16 { self.cabinet_set_index }
+    pub fn cabinet_set_index(&self) -> u16 {
+        self.cabinet_set_index
+    }
 
     /// Returns the application-defined reserve data stored in the cabinet
     /// header.
-    pub fn reserve_data(&self) -> &[u8] { &self.reserve_data }
+    pub fn reserve_data(&self) -> &[u8] {
+        &self.reserve_data
+    }
 
     /// Returns an iterator over the folder entries in this cabinet.
     pub fn folder_entries(&self) -> FolderEntries {
@@ -168,11 +178,7 @@ impl<R: Read + Seek> Cabinet<R> {
         if let Some((folder_index, offset, size)) = self.find_file(name) {
             let mut folder_reader = self.read_folder(folder_index)?;
             folder_reader.seek(SeekFrom::Start(offset))?;
-            Ok(FileReader {
-                   reader: folder_reader,
-                   offset: 0,
-                   size: size,
-               })
+            Ok(FileReader { reader: folder_reader, offset: 0, size })
         } else {
             not_found!("No such file in cabinet: {:?}", name);
         }
@@ -194,14 +200,17 @@ impl<R: Read + Seek> Cabinet<R> {
     /// Returns a reader over the decompressed data in the specified folder.
     fn read_folder(&mut self, index: usize) -> io::Result<FolderReader<R>> {
         if index >= self.folders.len() {
-            invalid_input!("Folder index {} is out of range (cabinet has {} \
-                            folders)",
-                           index,
-                           self.folders.len());
+            invalid_input!(
+                "Folder index {} is out of range (cabinet has {} folders)",
+                index,
+                self.folders.len()
+            );
         }
-        FolderReader::new(&mut self.reader,
-                          &self.folders[index],
-                          self.data_reserve_size)
+        FolderReader::new(
+            &mut self.reader,
+            &self.folders[index],
+            self.data_reserve_size,
+        )
     }
 }
 
@@ -216,9 +225,13 @@ pub struct FolderEntries<'a> {
 impl<'a> Iterator for FolderEntries<'a> {
     type Item = &'a FolderEntry;
 
-    fn next(&mut self) -> Option<&'a FolderEntry> { self.iter.next() }
+    fn next(&mut self) -> Option<&'a FolderEntry> {
+        self.iter.next()
+    }
 
-    fn size_hint(&self) -> (usize, Option<usize>) { self.iter.size_hint() }
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.iter.size_hint()
+    }
 }
 
 impl<'a> ExactSizeIterator for FolderEntries<'a> {}
@@ -236,13 +249,19 @@ pub struct FolderEntry {
 
 impl FolderEntry {
     /// Returns the scheme used to compress this folder's data.
-    pub fn compression_type(&self) -> CompressionType { self.compression_type }
+    pub fn compression_type(&self) -> CompressionType {
+        self.compression_type
+    }
 
     /// Returns the number of data blocks used to store this folder's data.
-    pub fn num_data_blocks(&self) -> u16 { self.num_data_blocks }
+    pub fn num_data_blocks(&self) -> u16 {
+        self.num_data_blocks
+    }
 
     /// Returns the application-defined reserve data for this folder.
-    pub fn reserve_data(&self) -> &[u8] { &self.reserve_data }
+    pub fn reserve_data(&self) -> &[u8] {
+        &self.reserve_data
+    }
 
     /// Returns an iterator over the file entries in this folder.
     pub fn file_entries(&self) -> FileEntries {
@@ -261,9 +280,13 @@ pub struct FileEntries<'a> {
 impl<'a> Iterator for FileEntries<'a> {
     type Item = &'a FileEntry;
 
-    fn next(&mut self) -> Option<&'a FileEntry> { self.iter.next() }
+    fn next(&mut self) -> Option<&'a FileEntry> {
+        self.iter.next()
+    }
 
-    fn size_hint(&self) -> (usize, Option<usize>) { self.iter.size_hint() }
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.iter.size_hint()
+    }
 }
 
 impl<'a> ExactSizeIterator for FileEntries<'a> {}
@@ -281,17 +304,24 @@ pub struct FileEntry {
 
 impl FileEntry {
     /// Returns the name of file.
-    pub fn name(&self) -> &str { &self.name }
+    pub fn name(&self) -> &str {
+        &self.name
+    }
 
     /// Returns the datetime for this file.  According to the CAB spec, this
     /// "is typically considered the 'last modified' time in local time, but
-    /// the actual definition is application-defined".
-    /// Note that this will return [None] if the datetime in the cabinet file
+    /// the actual definition is application-defined."
+    ///
+    /// Note that this will return [`None`] if the datetime in the cabinet file
     /// was not a valid date/time.
-    pub fn datetime(&self) -> Option<NaiveDateTime> { self.datetime }
+    pub fn datetime(&self) -> Option<NaiveDateTime> {
+        self.datetime
+    }
 
     /// Returns the total size of the file when decompressed, in bytes.
-    pub fn uncompressed_size(&self) -> u32 { self.uncompressed_size }
+    pub fn uncompressed_size(&self) -> u32 {
+        self.uncompressed_size
+    }
 
     /// Returns true if this file has the "read-only" attribute set.
     pub fn is_read_only(&self) -> bool {
@@ -357,11 +387,14 @@ impl<'a, R: Read + Seek> Seek for FileReader<'a, R> {
             SeekFrom::End(delta) => self.size as i64 + delta,
         };
         if new_offset < 0 || (new_offset as u64) > self.size {
-            invalid_input!("Cannot seek to {}, file length is {}",
-                           new_offset,
-                           self.size);
+            invalid_input!(
+                "Cannot seek to {}, file length is {}",
+                new_offset,
+                self.size
+            );
         }
-        self.reader.seek(SeekFrom::Current(new_offset - self.offset as i64))?;
+        self.reader
+            .seek(SeekFrom::Current(new_offset - self.offset as i64))?;
         self.offset = new_offset as u64;
         Ok(self.offset)
     }
@@ -389,8 +422,11 @@ enum FolderDecompressor {
 }
 
 impl<'a, R: 'a + Read + Seek> FolderReader<'a, R> {
-    fn new(reader: &'a mut R, entry: &FolderEntry, data_reserve_size: u8)
-           -> io::Result<FolderReader<'a, R>> {
+    fn new(
+        reader: &'a mut R,
+        entry: &FolderEntry,
+        data_reserve_size: u8,
+    ) -> io::Result<FolderReader<'a, R>> {
         let num_data_blocks = entry.num_data_blocks() as usize;
         let mut data_blocks =
             Vec::<(u64, u64)>::with_capacity(num_data_blocks);
@@ -426,15 +462,15 @@ impl<'a, R: 'a + Read + Seek> FolderReader<'a, R> {
                     24 => lzxd::WindowSize::MB16,
                     25 => lzxd::WindowSize::MB32,
 
-                    _ => invalid_data!("LZX given with invalid window size")
+                    _ => invalid_data!("LZX given with invalid window size"),
                 }))
             }
         };
         let mut folder_reader = FolderReader {
-            reader: reader,
-            decompressor: decompressor,
+            reader,
+            decompressor,
             data_reserve_size: data_reserve_size as usize,
-            data_blocks: data_blocks,
+            data_blocks,
             current_block_index: 0,
             current_block_data: Vec::new(),
             current_offset_within_block: 0,
@@ -487,27 +523,29 @@ impl<'a, R: 'a + Read + Seek> FolderReader<'a, R> {
             let mut checksum = Checksum::new();
             checksum.append(&reserve_data);
             checksum.append(&compressed_data);
-            let actual_checksum = checksum.value() ^
-                ((compressed_size as u32) |
-                    ((uncompressed_size as u32) << 16));
+            let actual_checksum = checksum.value()
+                ^ ((compressed_size as u32)
+                    | ((uncompressed_size as u32) << 16));
             if actual_checksum != expected_checksum {
-                invalid_data!("Checksum error in data block {} \
-                               (expected {:08x}, actual {:08x})",
-                              self.current_block_index,
-                              expected_checksum,
-                              actual_checksum);
+                invalid_data!(
+                    "Checksum error in data block {} \
+                     (expected {:08x}, actual {:08x})",
+                    self.current_block_index,
+                    expected_checksum,
+                    actual_checksum
+                );
             }
         }
         self.current_block_data = match self.decompressor {
             FolderDecompressor::Uncompressed => compressed_data,
-            FolderDecompressor::MsZip(ref mut decompressor) => {
-                decompressor
-                    .decompress_block(&compressed_data, uncompressed_size)?
-            }
-            FolderDecompressor::Lzx(ref mut decompressor) => {
-                decompressor.decompress_next(&compressed_data)
-                    .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?.to_vec()
-            }
+            FolderDecompressor::MsZip(ref mut decompressor) => decompressor
+                .decompress_block(&compressed_data, uncompressed_size)?,
+            FolderDecompressor::Lzx(ref mut decompressor) => decompressor
+                .decompress_next(&compressed_data)
+                .map_err(|e| {
+                    std::io::Error::new(std::io::ErrorKind::Other, e)
+                })?
+                .to_vec(),
         };
         Ok(())
     }
@@ -515,8 +553,7 @@ impl<'a, R: 'a + Read + Seek> FolderReader<'a, R> {
 
 impl<'a, R: Read + Seek> Read for FolderReader<'a, R> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        if buf.is_empty() ||
-            self.current_block_index >= self.data_blocks.len()
+        if buf.is_empty() || self.current_block_index >= self.data_blocks.len()
         {
             return Ok(0);
         }
@@ -525,13 +562,13 @@ impl<'a, R: Read + Seek> Read for FolderReader<'a, R> {
             self.current_offset_within_block = 0;
             self.load_block()?;
         }
-        let max_bytes =
-            buf.len().min(self.current_block_data.len() -
-                              self.current_offset_within_block);
-        buf[..max_bytes]
-            .copy_from_slice(&self.current_block_data
-                                 [self.current_offset_within_block..]
-                                 [..max_bytes]);
+        let max_bytes = buf.len().min(
+            self.current_block_data.len() - self.current_offset_within_block,
+        );
+        buf[..max_bytes].copy_from_slice(
+            &self.current_block_data[self.current_offset_within_block..]
+                [..max_bytes],
+        );
         self.current_offset_within_block += max_bytes;
         self.current_offset_within_folder += max_bytes as u64;
         Ok(max_bytes)
@@ -549,9 +586,11 @@ impl<'a, R: Read + Seek> Seek for FolderReader<'a, R> {
             SeekFrom::End(delta) => total_size as i64 + delta,
         };
         if new_offset < 0 || (new_offset as u64) > total_size {
-            invalid_input!("Cannot seek to {}, data length is {}",
-                           new_offset,
-                           total_size);
+            invalid_input!(
+                "Cannot seek to {}, data length is {}",
+                new_offset,
+                total_size
+            );
         }
         let new_offset = new_offset as u64;
         if new_offset < self.current_block_start() {
@@ -573,16 +612,20 @@ impl<'a, R: Read + Seek> Seek for FolderReader<'a, R> {
 
 // ========================================================================= //
 
-fn read_null_terminated_string<R: Read>(reader: &mut R, _is_utf8: bool)
-                                        -> io::Result<String> {
+fn read_null_terminated_string<R: Read>(
+    reader: &mut R,
+    _is_utf8: bool,
+) -> io::Result<String> {
     let mut bytes = Vec::<u8>::with_capacity(consts::MAX_STRING_SIZE);
     loop {
         let byte = reader.read_u8()?;
         if byte == 0 {
             break;
         } else if bytes.len() == consts::MAX_STRING_SIZE {
-            invalid_data!("String longer than maximum of {} bytes",
-                          consts::MAX_STRING_SIZE);
+            invalid_data!(
+                "String longer than maximum of {} bytes",
+                consts::MAX_STRING_SIZE
+            );
         }
         bytes.push(byte);
     }
@@ -636,8 +679,7 @@ mod tests {
 
     #[test]
     fn read_uncompressed_cabinet_with_two_files() {
-        let binary: &[u8] =
-            b"MSCF\0\0\0\0\x80\0\0\0\0\0\0\0\
+        let binary: &[u8] = b"MSCF\0\0\0\0\x80\0\0\0\0\0\0\0\
             \x2c\0\0\0\0\0\0\0\x03\x01\x01\0\x02\0\0\0\x34\x12\0\0\
             \x5b\0\0\0\x01\0\0\0\
             \x0e\0\0\0\0\0\0\0\0\0\x6c\x22\xe7\x59\x01\0hi.txt\0\
@@ -670,8 +712,10 @@ mod tests {
         assert_eq!(binary.len(), 0x61);
         let mut cabinet = Cabinet::new(Cursor::new(binary)).unwrap();
         assert_eq!(cabinet.folder_entries().len(), 1);
-        assert_eq!(cabinet.folder_entries().nth(0).unwrap().num_data_blocks(),
-                   2);
+        assert_eq!(
+            cabinet.folder_entries().nth(0).unwrap().num_data_blocks(),
+            2
+        );
 
         let mut data = Vec::new();
         cabinet.read_folder(0).unwrap().read_to_end(&mut data).unwrap();
@@ -684,8 +728,7 @@ mod tests {
 
     #[test]
     fn read_mszip_cabinet_with_one_file() {
-        let binary: &[u8] =
-            b"MSCF\0\0\0\0\x61\0\0\0\0\0\0\0\
+        let binary: &[u8] = b"MSCF\0\0\0\0\x61\0\0\0\0\0\0\0\
             \x2c\0\0\0\0\0\0\0\x03\x01\x01\0\x01\0\0\0\x34\x12\0\0\
             \x43\0\0\0\x01\0\x01\0\
             \x0e\0\0\0\0\0\0\0\0\0\x6c\x22\xe7\x59\x01\0hi.txt\0\
@@ -709,8 +752,7 @@ mod tests {
 
     #[test]
     fn read_mszip_cabinet_with_two_files() {
-        let binary: &[u8] =
-            b"MSCF\0\0\0\0\x88\0\0\0\0\0\0\0\
+        let binary: &[u8] = b"MSCF\0\0\0\0\x88\0\0\0\0\0\0\0\
             \x2c\0\0\0\0\0\0\0\x03\x01\x01\0\x02\0\0\0\x34\x12\0\0\
             \x5b\0\0\0\x01\0\x01\0\
             \x0e\0\0\0\0\0\0\0\0\0\x6c\x22\xe7\x59\x01\0hi.txt\0\
