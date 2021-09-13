@@ -1,10 +1,10 @@
 use byteorder::{LittleEndian, WriteBytesExt};
 use chrono::{Local, NaiveDateTime};
-use internal::checksum::Checksum;
-use internal::consts;
-use internal::ctype::CompressionType;
-use internal::datetime::datetime_to_bits;
-use internal::mszip::MsZipCompressor;
+use crate::internal::checksum::Checksum;
+use crate::internal::consts;
+use crate::internal::ctype::CompressionType;
+use crate::internal::datetime::datetime_to_bits;
+use crate::internal::mszip::MsZipCompressor;
 use std::io::{self, Seek, SeekFrom, Write};
 use std::mem;
 use std::u16;
@@ -600,7 +600,7 @@ impl<W: Write + Seek> Write for FolderWriter<W> {
 mod tests {
     use super::CabinetBuilder;
     use chrono::NaiveDate;
-    use internal::ctype::CompressionType;
+    use crate::internal::ctype::CompressionType;
     use std::io::{Cursor, Write};
 
     #[test]

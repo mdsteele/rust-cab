@@ -1,6 +1,7 @@
 [package]
 name = "cab"
 version = "0.2.0"
+edition = '2018'
 authors = ["Matthew D. Steele <mdsteele@alum.mit.edu>"]
 description = "Read/write Windows cabinet (CAB) files"
 repository = "https://github.com/mdsteele/rust-cab"
@@ -12,8 +13,10 @@ readme = "README.md"
 byteorder = "1"
 chrono = "0.4"
 flate2 = { version = "1", features = ["rust_backend"], default-features = false }
+lzxd = "0.1.1"
 
 [dev-dependencies]
+anyhow = "1.0.43"
 clap = "2.27"
 lipsum = "0.6"
 rand = "0.3"

@@ -1,10 +1,11 @@
 use byteorder::{LittleEndian, ReadBytesExt};
 use chrono::NaiveDateTime;
-use internal::checksum::Checksum;
-use internal::consts;
-use internal::ctype::CompressionType;
-use internal::datetime::datetime_from_bits;
-use internal::mszip::MsZipDecompressor;
+use crate::internal::checksum::Checksum;
+use crate::internal::consts;
+use crate::internal::ctype::CompressionType;
+use crate::internal::datetime::datetime_from_bits;
+use crate::internal::mszip::MsZipDecompressor;
+use lzxd::Lzxd;
 use std::io::{self, Read, Seek, SeekFrom};
 use std::slice;
 
@@ -110,14 +111,7 @@ impl<R: Read + Seek> Cabinet<R> {
             }
             let date = reader.read_u16::<LittleEndian>()?;
             let time = reader.read_u16::<LittleEndian>()?;
-            let datetime = match datetime_from_bits(date, time) {
-                Some(dt) => dt,
-                None => {
-                    invalid_data!("Invalid date/time values ({} {})",
-                                  date,
-                                  time)
-                }
-            };
+            let datetime = datetime_from_bits(date, time);
             let attributes = reader.read_u16::<LittleEndian>()?;
             let is_utf8 = (attributes & consts::ATTR_NAME_IS_UTF) != 0;
             let name = read_null_terminated_string(&mut reader, is_utf8)?;
@@ -279,7 +273,7 @@ impl<'a> ExactSizeIterator for FileEntries<'a> {}
 /// Metadata about one file stored in a cabinet.
 pub struct FileEntry {
     name: String,
-    datetime: NaiveDateTime,
+    datetime: Option<NaiveDateTime>,
     uncompressed_size: u32,
     uncompressed_offset: u32,
     attributes: u16,
@@ -292,7 +286,9 @@ impl FileEntry {
     /// Returns the datetime for this file.  According to the CAB spec, this
     /// "is typically considered the 'last modified' time in local time, but
     /// the actual definition is application-defined".
-    pub fn datetime(&self) -> NaiveDateTime { self.datetime }
+    /// Note that this will return [None] if the datetime in the cabinet file
+    /// was not a valid date/time.
+    pub fn datetime(&self) -> Option<NaiveDateTime> { self.datetime }
 
     /// Returns the total size of the file when decompressed, in bytes.
     pub fn uncompressed_size(&self) -> u32 { self.uncompressed_size }
@@ -388,6 +384,7 @@ struct FolderReader<'a, R: 'a> {
 enum FolderDecompressor {
     Uncompressed,
     MsZip(MsZipDecompressor),
+    Lzx(Lzxd),
     // TODO: add options for other compression types
 }
 
@@ -415,8 +412,22 @@ impl<'a, R: 'a + Read + Seek> FolderReader<'a, R> {
             CompressionType::Quantum(_, _) => {
                 invalid_data!("Quantum decompression is not yet supported.");
             }
-            CompressionType::Lzx(_) => {
-                invalid_data!("LZX decompression is not yet supported.");
+            CompressionType::Lzx(window_size) => {
+                FolderDecompressor::Lzx(Lzxd::new(match window_size {
+                    15 => lzxd::WindowSize::KB32,
+                    16 => lzxd::WindowSize::KB64,
+                    17 => lzxd::WindowSize::KB128,
+                    18 => lzxd::WindowSize::KB256,
+                    19 => lzxd::WindowSize::KB512,
+                    20 => lzxd::WindowSize::MB1,
+                    21 => lzxd::WindowSize::MB2,
+                    22 => lzxd::WindowSize::MB4,
+                    23 => lzxd::WindowSize::MB8,
+                    24 => lzxd::WindowSize::MB16,
+                    25 => lzxd::WindowSize::MB32,
+
+                    _ => invalid_data!("LZX given with invalid window size")
+                }))
             }
         };
         let mut folder_reader = FolderReader {
@@ -492,6 +503,10 @@ impl<'a, R: 'a + Read + Seek> FolderReader<'a, R> {
             FolderDecompressor::MsZip(ref mut decompressor) => {
                 decompressor
                     .decompress_block(&compressed_data, uncompressed_size)?
+            }
+            FolderDecompressor::Lzx(ref mut decompressor) => {
+                decompressor.decompress_next(&compressed_data)
+                    .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?.to_vec()
             }
         };
         Ok(())
@@ -600,12 +615,14 @@ mod tests {
             let file = cabinet.get_file_entry("hi.txt").unwrap();
             assert_eq!(file.name(), "hi.txt");
             assert!(!file.is_name_utf());
-            assert_eq!(file.datetime().year(), 1997);
-            assert_eq!(file.datetime().month(), 3);
-            assert_eq!(file.datetime().day(), 12);
-            assert_eq!(file.datetime().hour(), 11);
-            assert_eq!(file.datetime().minute(), 13);
-            assert_eq!(file.datetime().second(), 52);
+            let dt = file.datetime().unwrap();
+
+            assert_eq!(dt.year(), 1997);
+            assert_eq!(dt.month(), 3);
+            assert_eq!(dt.day(), 12);
+            assert_eq!(dt.hour(), 11);
+            assert_eq!(dt.minute(), 13);
+            assert_eq!(dt.second(), 52);
         }
 
         let mut data = Vec::new();
@@ -714,6 +731,36 @@ mod tests {
         let mut data = Vec::new();
         cabinet.read_file("bye.txt").unwrap().read_to_end(&mut data).unwrap();
         assert_eq!(data, b"See you later!\n");
+    }
+
+    #[test]
+    fn read_lzx_cabinet_with_two_files() {
+        let binary: &[u8] =
+            b"\x4d\x53\x43\x46\x00\x00\x00\x00\x97\x00\x00\x00\x00\x00\x00\
+            \x00\x2c\x00\x00\x00\x00\x00\x00\x00\x03\x01\x01\x00\x02\x00\
+            \x00\x00\x2d\x05\x00\x00\x5b\x00\x00\x00\x01\x00\x03\x13\x0f\
+            \x00\x00\x00\x00\x00\x00\x00\x00\x00\x21\x53\x0d\xb2\x20\x00\
+            \x68\x69\x2e\x74\x78\x74\x00\x10\x00\x00\x00\x0f\x00\x00\x00\
+            \x00\x00\x21\x53\x0b\xb2\x20\x00\x62\x79\x65\x2e\x74\x78\x74\
+            \x00\x5c\xef\x2a\xc7\x34\x00\x1f\x00\x5b\x80\x80\x8d\x00\x30\
+            \xf0\x01\x10\x00\x00\x00\x01\x00\x00\x00\x01\x00\x00\x00\x48\
+            \x65\x6c\x6c\x6f\x2c\x20\x77\x6f\x72\x6c\x64\x21\x0d\x0a\x53\
+            \x65\x65\x20\x79\x6f\x75\x20\x6c\x61\x74\x65\x72\x21\x0d\x0a\
+            \x00";
+        assert_eq!(binary.len(), 0x97);
+        let mut cabinet = Cabinet::new(Cursor::new(binary)).unwrap();
+
+        let mut data = Vec::new();
+        cabinet.read_folder(0).unwrap().read_to_end(&mut data).unwrap();
+        assert_eq!(data, b"Hello, world!\r\nSee you later!\r\n");
+
+        let mut data = Vec::new();
+        cabinet.read_file("hi.txt").unwrap().read_to_end(&mut data).unwrap();
+        assert_eq!(data, b"Hello, world!\r\n");
+
+        let mut data = Vec::new();
+        cabinet.read_file("bye.txt").unwrap().read_to_end(&mut data).unwrap();
+        assert_eq!(data, b"See you later!\r\n");
     }
 
     #[test]
