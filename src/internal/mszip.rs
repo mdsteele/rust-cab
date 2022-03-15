@@ -197,7 +197,7 @@ mod tests {
         type PCOMPRESSOR_HANDLE = *mut COMPRESSOR_HANDLE;
         type PDECOMPRESSOR_HANDLE = *mut DECOMPRESSOR_HANDLE;
 
-        #[cfg_attr(rustfmt, rustfmt_skip)]
+        #[rustfmt::skip]
         #[link(name = "cabinet")]
         extern "system" {
             fn CreateCompressor(
