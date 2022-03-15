@@ -42,17 +42,17 @@ impl CompressionType {
             Ok(CompressionType::MsZip)
         } else if ctype == CTYPE_QUANTUM {
             let level = (bits & 0x00f0) >> 4;
-            if level < QUANTUM_LEVEL_MIN || level > QUANTUM_LEVEL_MAX {
+            if !(QUANTUM_LEVEL_MIN..=QUANTUM_LEVEL_MAX).contains(&level) {
                 invalid_data!("Invalid Quantum level: 0x{:02x}", level);
             }
             let memory = (bits & 0x1f00) >> 8;
-            if memory < QUANTUM_MEMORY_MIN || memory > QUANTUM_MEMORY_MAX {
+            if !(QUANTUM_MEMORY_MIN..=QUANTUM_MEMORY_MAX).contains(&memory) {
                 invalid_data!("Invalid Quantum memory: 0x{:02x}", memory);
             }
             Ok(CompressionType::Quantum(level, memory))
         } else if ctype == CTYPE_LZX {
             let window = (bits & 0x1f00) >> 8;
-            if window < LZX_WINDOW_MIN || window > LZX_WINDOW_MAX {
+            if !(LZX_WINDOW_MIN..=LZX_WINDOW_MAX).contains(&window) {
                 invalid_data!("Invalid LZX window: 0x{:02x}", window);
             }
             Ok(CompressionType::Lzx(window))
@@ -61,8 +61,8 @@ impl CompressionType {
         }
     }
 
-    pub(crate) fn to_bitfield(&self) -> u16 {
-        match *self {
+    pub(crate) fn to_bitfield(self) -> u16 {
+        match self {
             CompressionType::None => CTYPE_NONE,
             CompressionType::MsZip => CTYPE_MSZIP,
             CompressionType::Quantum(level, memory) => {

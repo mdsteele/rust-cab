@@ -170,6 +170,12 @@ impl CabinetBuilder {
     }
 }
 
+impl Default for CabinetBuilder {
+    fn default() -> Self {
+        CabinetBuilder::new()
+    }
+}
+
 // ========================================================================= //
 
 /// A structure for writing file data into a new cabinet file.
@@ -189,10 +195,7 @@ enum InnerCabinetWriter<W: Write + Seek> {
 
 impl<W: Write + Seek> InnerCabinetWriter<W> {
     fn is_none(&self) -> bool {
-        match *self {
-            InnerCabinetWriter::None => true,
-            _ => false,
-        }
+        matches!(*self, InnerCabinetWriter::None)
     }
 
     fn take(&mut self) -> InnerCabinetWriter<W> {
@@ -412,7 +415,7 @@ impl<W: Write + Seek> CabinetWriter<W> {
     }
 
     fn shutdown(&mut self) -> io::Result<()> {
-        while let Some(_) = self.next_file()? {}
+        while (self.next_file()?).is_some() {}
         match self.writer {
             InnerCabinetWriter::Raw(ref mut writer) => {
                 let cabinet_file_size = writer.seek(SeekFrom::Current(0))?;
