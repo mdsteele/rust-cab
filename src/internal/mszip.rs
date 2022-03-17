@@ -238,7 +238,7 @@ mod tests {
         /// Compress `data` with the Microsoft compression API.
         pub fn do_system_compress(data: &[u8]) -> Vec<(usize, Vec<u8>)> {
             let handle = unsafe {
-                let mut handle: COMPRESSOR_HANDLE = mem::uninitialized();
+                let mut handle: COMPRESSOR_HANDLE = mem::MaybeUninit::uninit();
                 if CreateCompressor(
                     COMPRESS_ALGORITHM_MSZIP | COMPRESS_RAW,
                     ptr::null_mut(),
@@ -247,13 +247,13 @@ mod tests {
                 {
                     panic!("CreateCompressor failed");
                 }
-                handle
+                handle.assume_init()
             };
             let mut blocks = Vec::<(usize, Vec<u8>)>::new();
             for slice in data.chunks(DEFLATE_MAX_DICT_LEN) {
                 let mut buffer = vec![0; 0xffff];
                 unsafe {
-                    let mut compressed_size: SIZE_T = mem::uninitialized();
+                    let mut compressed_size: SIZE_T = mem::MaybeUninit::uninit();
                     if Compress(
                         handle,
                         slice.as_ptr() as PVOID,
@@ -277,7 +277,7 @@ mod tests {
 
         pub fn do_system_decompress(blocks: Vec<(usize, Vec<u8>)>) -> Vec<u8> {
             let handle = unsafe {
-                let mut handle: DECOMPRESSOR_HANDLE = mem::uninitialized();
+                let mut handle: DECOMPRESSOR_HANDLE = mem::MaybeUninit::uninit();
                 if CreateDecompressor(
                     COMPRESS_ALGORITHM_MSZIP | COMPRESS_RAW,
                     ptr::null_mut(),
@@ -286,7 +286,7 @@ mod tests {
                 {
                     panic!("CreateDecompressor failed");
                 }
-                handle
+                handle.assume_init()
             };
             let mut buffer = Vec::<u8>::new();
             // Decompress each chunk in turn.
