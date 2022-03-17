@@ -253,7 +253,8 @@ mod tests {
             for slice in data.chunks(DEFLATE_MAX_DICT_LEN) {
                 let mut buffer = vec![0; 0xffff];
                 unsafe {
-                    let mut compressed_size: SIZE_T = mem::MaybeUninit::uninit();
+                    let mut compressed_size: SIZE_T =
+                        mem::MaybeUninit::uninit();
                     if Compress(
                         handle,
                         slice.as_ptr() as PVOID,
@@ -277,7 +278,8 @@ mod tests {
 
         pub fn do_system_decompress(blocks: Vec<(usize, Vec<u8>)>) -> Vec<u8> {
             let handle = unsafe {
-                let mut handle: DECOMPRESSOR_HANDLE = mem::MaybeUninit::uninit();
+                let mut handle: DECOMPRESSOR_HANDLE =
+                    mem::MaybeUninit::uninit();
                 if CreateDecompressor(
                     COMPRESS_ALGORITHM_MSZIP | COMPRESS_RAW,
                     ptr::null_mut(),
