@@ -416,8 +416,8 @@ struct FolderReader<'a, R: 'a> {
 
 enum FolderDecompressor {
     Uncompressed,
-    MsZip(MsZipDecompressor),
-    Lzx(Lzxd),
+    MsZip(Box<MsZipDecompressor>),
+    Lzx(Box<Lzxd>),
     // TODO: add options for other compression types
 }
 
@@ -443,13 +443,13 @@ impl<'a, R: 'a + Read + Seek> FolderReader<'a, R> {
         let decompressor = match entry.compression_type() {
             CompressionType::None => FolderDecompressor::Uncompressed,
             CompressionType::MsZip => {
-                FolderDecompressor::MsZip(MsZipDecompressor::new())
+                FolderDecompressor::MsZip(Box::new(MsZipDecompressor::new()))
             }
             CompressionType::Quantum(_, _) => {
                 invalid_data!("Quantum decompression is not yet supported.");
             }
             CompressionType::Lzx(window_size) => {
-                FolderDecompressor::Lzx(Lzxd::new(match window_size {
+                let lzxd = Lzxd::new(match window_size {
                     15 => lzxd::WindowSize::KB32,
                     16 => lzxd::WindowSize::KB64,
                     17 => lzxd::WindowSize::KB128,
@@ -463,7 +463,8 @@ impl<'a, R: 'a + Read + Seek> FolderReader<'a, R> {
                     25 => lzxd::WindowSize::MB32,
 
                     _ => invalid_data!("LZX given with invalid window size"),
-                }))
+                });
+                FolderDecompressor::Lzx(Box::new(lzxd))
             }
         };
         let mut folder_reader = FolderReader {
