@@ -141,8 +141,8 @@ impl MsZipDecompressor {
 
 #[cfg(test)]
 mod tests {
-    extern crate rand;
-    use self::rand::Rng;
+    use rand::RngCore;
+
     use super::{MsZipCompressor, MsZipDecompressor, DEFLATE_MAX_DICT_LEN};
 
     #[test]
@@ -169,7 +169,11 @@ mod tests {
     }
 
     fn random_data(size: usize) -> Vec<u8> {
-        rand::thread_rng().gen_iter::<u8>().take(size).collect()
+        use rand::SeedableRng;
+
+        let mut rd = vec![0; size];
+        rand::rngs::SmallRng::from_entropy().fill_bytes(&mut rd);
+        rd
     }
 
     #[cfg(target_env = "msvc")]
@@ -179,8 +183,6 @@ mod tests {
     /// sharing it.
     mod sys {
         #![allow(non_camel_case_types)]
-
-        extern crate winapi;
 
         use self::winapi::basetsd::{PSIZE_T, SIZE_T};
         use self::winapi::minwindef::{BOOL, DWORD, FALSE, LPVOID, TRUE};

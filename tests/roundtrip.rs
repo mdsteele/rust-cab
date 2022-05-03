@@ -1,18 +1,12 @@
-extern crate cab;
-extern crate chrono;
-extern crate lipsum;
-extern crate rand;
-
-use chrono::NaiveDate;
-use rand::Rng;
 use std::io::{Cursor, Read, Write};
+use time::macros::datetime;
 
 // ========================================================================= //
 
 #[test]
 fn cabinet_with_one_small_uncompressed_text_file() {
     let original = lipsum::lipsum(500);
-    let datetime = NaiveDate::from_ymd(2063, 4, 5).and_hms(23, 14, 38);
+    let datetime = datetime!(2063-04-05 23:14:38);
 
     let mut cab_builder = cab::CabinetBuilder::new();
     {
@@ -132,8 +126,10 @@ fn cabinet_with_one_big_mszipped_text_file() {
 // ========================================================================= //
 
 fn random_data_roundtrip(num_bytes: usize, ctype: cab::CompressionType) {
-    let original: Vec<u8> =
-        rand::thread_rng().gen_iter::<u8>().take(num_bytes).collect();
+    use rand::{RngCore, SeedableRng};
+
+    let mut original = vec![0; num_bytes];
+    rand::rngs::SmallRng::from_entropy().fill_bytes(&mut original);
 
     let mut cab_builder = cab::CabinetBuilder::new();
     cab_builder.add_folder(ctype).add_file("binary");

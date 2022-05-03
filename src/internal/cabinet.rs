@@ -4,10 +4,10 @@ use crate::internal::ctype::CompressionType;
 use crate::internal::datetime::datetime_from_bits;
 use crate::internal::mszip::MsZipDecompressor;
 use byteorder::{LittleEndian, ReadBytesExt};
-use chrono::NaiveDateTime;
 use lzxd::Lzxd;
 use std::io::{self, Read, Seek, SeekFrom};
 use std::slice;
+use time::PrimitiveDateTime;
 
 // ========================================================================= //
 
@@ -296,7 +296,7 @@ impl<'a> ExactSizeIterator for FileEntries<'a> {}
 /// Metadata about one file stored in a cabinet.
 pub struct FileEntry {
     name: String,
-    datetime: Option<NaiveDateTime>,
+    datetime: Option<PrimitiveDateTime>,
     uncompressed_size: u32,
     uncompressed_offset: u32,
     attributes: u16,
@@ -314,7 +314,7 @@ impl FileEntry {
     ///
     /// Note that this will return [`None`] if the datetime in the cabinet file
     /// was not a valid date/time.
-    pub fn datetime(&self) -> Option<NaiveDateTime> {
+    pub fn datetime(&self) -> Option<PrimitiveDateTime> {
         self.datetime
     }
 
@@ -639,7 +639,6 @@ fn read_null_terminated_string<R: Read>(
 #[cfg(test)]
 mod tests {
     use super::Cabinet;
-    use chrono::{Datelike, Timelike};
     use std::io::{Cursor, Read};
 
     #[test]
@@ -662,7 +661,7 @@ mod tests {
             let dt = file.datetime().unwrap();
 
             assert_eq!(dt.year(), 1997);
-            assert_eq!(dt.month(), 3);
+            assert_eq!(dt.month(), time::Month::March);
             assert_eq!(dt.day(), 12);
             assert_eq!(dt.hour(), 11);
             assert_eq!(dt.minute(), 13);

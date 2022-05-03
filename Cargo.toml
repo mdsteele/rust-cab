@@ -11,13 +11,16 @@ readme = "README.md"
 
 [dependencies]
 byteorder = "1"
-chrono = "0.4"
-flate2 = { version = "1", features = ["rust_backend"], default-features = false }
+time = "0.3"
+flate2 = { version = "1", features = [
+    "rust_backend",
+], default-features = false }
 lzxd = "0.1.4"
 
 [dev-dependencies]
 anyhow = "1.0.43"
 clap = "2.27"
-lipsum = "0.6"
-rand = "0.3"
-winapi = "0.2"
+lipsum = "0.8"
+rand = { version = "0.8", features = ["small_rng"] }
+time = { version = "0.3", features = ["macros"] }
+winapi = { version = "0.3", features = ["basetsd", "minwindef", "winnt"] }
