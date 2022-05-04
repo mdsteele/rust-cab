@@ -141,8 +141,8 @@ impl MsZipDecompressor {
 
 #[cfg(test)]
 mod tests {
-    extern crate rand;
-    use self::rand::Rng;
+    use rand::RngCore;
+
     use super::{MsZipCompressor, MsZipDecompressor, DEFLATE_MAX_DICT_LEN};
 
     #[test]
@@ -169,7 +169,11 @@ mod tests {
     }
 
     fn random_data(size: usize) -> Vec<u8> {
-        rand::thread_rng().gen_iter::<u8>().take(size).collect()
+        use rand::SeedableRng;
+
+        let mut rd = vec![0; size];
+        rand::rngs::SmallRng::from_entropy().fill_bytes(&mut rd);
+        rd
     }
 
     #[cfg(target_env = "msvc")]
@@ -180,14 +184,12 @@ mod tests {
     mod sys {
         #![allow(non_camel_case_types)]
 
-        extern crate winapi;
-
-        use self::winapi::basetsd::{PSIZE_T, SIZE_T};
-        use self::winapi::minwindef::{BOOL, DWORD, FALSE, LPVOID, TRUE};
-        use self::winapi::winnt::{HANDLE, PVOID};
         use super::super::DEFLATE_MAX_DICT_LEN;
         use std::mem;
         use std::ptr;
+        use winapi::shared::basetsd::{PSIZE_T, SIZE_T};
+        use winapi::shared::minwindef::{BOOL, DWORD, FALSE, LPVOID, TRUE};
+        use winapi::um::winnt::{HANDLE, PVOID};
 
         const COMPRESS_ALGORITHM_MSZIP: DWORD = 2;
         const COMPRESS_RAW: DWORD = 1 << 29;
@@ -238,36 +240,34 @@ mod tests {
         /// Compress `data` with the Microsoft compression API.
         pub fn do_system_compress(data: &[u8]) -> Vec<(usize, Vec<u8>)> {
             let handle = unsafe {
-                let mut handle: COMPRESSOR_HANDLE =
-                    mem::MaybeUninit::uninit().assume_init();
+                let mut handle = mem::MaybeUninit::uninit();
                 if CreateCompressor(
                     COMPRESS_ALGORITHM_MSZIP | COMPRESS_RAW,
                     ptr::null_mut(),
-                    &mut handle as PCOMPRESSOR_HANDLE,
+                    handle.as_mut_ptr(),
                 ) != TRUE
                 {
                     panic!("CreateCompressor failed");
                 }
-                handle
+                handle.assume_init()
             };
             let mut blocks = Vec::<(usize, Vec<u8>)>::new();
             for slice in data.chunks(DEFLATE_MAX_DICT_LEN) {
                 let mut buffer = vec![0; 0xffff];
                 unsafe {
-                    let mut compressed_size: SIZE_T =
-                        mem::MaybeUninit::uninit().assume_init();
+                    let mut compressed_size = mem::MaybeUninit::uninit();
                     if Compress(
                         handle,
                         slice.as_ptr() as PVOID,
                         slice.len() as SIZE_T,
                         buffer.as_ptr() as PVOID,
                         buffer.len() as SIZE_T,
-                        &mut compressed_size as PSIZE_T,
+                        compressed_size.as_mut_ptr(),
                     ) == FALSE
                     {
                         panic!("Compress failed");
                     }
-                    buffer.resize(compressed_size as usize, 0);
+                    buffer.resize(compressed_size.assume_init() as usize, 0);
                 }
                 blocks.push((slice.len(), buffer));
             }
@@ -279,17 +279,16 @@ mod tests {
 
         pub fn do_system_decompress(blocks: Vec<(usize, Vec<u8>)>) -> Vec<u8> {
             let handle = unsafe {
-                let mut handle: DECOMPRESSOR_HANDLE =
-                    mem::MaybeUninit::uninit().assume_init();
+                let mut handle = mem::MaybeUninit::uninit();
                 if CreateDecompressor(
                     COMPRESS_ALGORITHM_MSZIP | COMPRESS_RAW,
                     ptr::null_mut(),
-                    &mut handle as PDECOMPRESSOR_HANDLE,
+                    handle.as_mut_ptr(),
                 ) != TRUE
                 {
                     panic!("CreateDecompressor failed");
                 }
-                handle
+                handle.assume_init()
             };
             let mut buffer = Vec::<u8>::new();
             // Decompress each chunk in turn.

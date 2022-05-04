@@ -4,11 +4,9 @@ use crate::internal::ctype::CompressionType;
 use crate::internal::datetime::datetime_to_bits;
 use crate::internal::mszip::MsZipCompressor;
 use byteorder::{LittleEndian, WriteBytesExt};
-use chrono::{Local, NaiveDateTime};
 use std::io::{self, Seek, SeekFrom, Write};
 use std::mem;
-use std::u16;
-use std::u32;
+use time::PrimitiveDateTime;
 
 // ========================================================================= //
 
@@ -20,7 +18,7 @@ const MAX_UNCOMPRESSED_BLOCK_SIZE: usize = 0x8000;
 pub struct FileBuilder {
     name: String,
     attributes: u16,
-    datetime: NaiveDateTime,
+    datetime: PrimitiveDateTime,
     entry_offset: u64,
     uncompressed_size: u32,
     offset_within_folder: u32,
@@ -29,10 +27,12 @@ pub struct FileBuilder {
 impl FileBuilder {
     fn new(name: String) -> FileBuilder {
         let name_is_utf = name.bytes().any(|byte| byte > 0x7f);
+        let now = time::OffsetDateTime::now_utc();
+
         let mut builder = FileBuilder {
             name,
             attributes: consts::ATTR_ARCH,
-            datetime: Local::now().naive_local(),
+            datetime: time::PrimitiveDateTime::new(now.date(), now.time()),
             entry_offset: 0, // filled in later by CabinetWriter
             uncompressed_size: 0, // filled in later by FileWriter
             offset_within_folder: 0, // filled in later by CabinetWriter
@@ -50,9 +50,9 @@ impl FileBuilder {
     /// given datetime is outside this range/resolution, it will be
     /// clamped/rounded to the nearest legal value.
     ///
-    /// By default, the datetime of a new `FileBuilder` is the current local
+    /// By default, the datetime of a new `FileBuilder` is the current UTC
     /// date/time.
-    pub fn set_datetime(&mut self, datetime: NaiveDateTime) {
+    pub fn set_datetime(&mut self, datetime: PrimitiveDateTime) {
         self.datetime = datetime;
     }
 
@@ -627,13 +627,13 @@ impl<W: Write + Seek> Write for FolderWriter<W> {
 mod tests {
     use super::CabinetBuilder;
     use crate::internal::ctype::CompressionType;
-    use chrono::NaiveDate;
     use std::io::{Cursor, Write};
+    use time::macros::datetime;
 
     #[test]
     fn write_uncompressed_cabinet_with_one_file() {
         let mut builder = CabinetBuilder::new();
-        let dt = NaiveDate::from_ymd(1997, 3, 12).and_hms(11, 13, 52);
+        let dt = datetime!(1997-03-12 11:13:52);
         builder
             .add_folder(CompressionType::None)
             .add_file("hi.txt")
@@ -654,7 +654,7 @@ mod tests {
     #[test]
     fn write_uncompressed_cabinet_with_two_files() {
         let mut builder = CabinetBuilder::new();
-        let dt = NaiveDate::from_ymd(2018, 1, 6).and_hms(15, 19, 42);
+        let dt = datetime!(2018-01-06 15:19:42);
         {
             let folder_builder = builder.add_folder(CompressionType::None);
             folder_builder.add_file("hi.txt").set_datetime(dt);
@@ -682,7 +682,7 @@ mod tests {
     #[test]
     fn write_uncompressed_cabinet_with_non_ascii_filename() {
         let mut builder = CabinetBuilder::new();
-        let dt = NaiveDate::from_ymd(1997, 3, 12).and_hms(11, 13, 52);
+        let dt = datetime!(1997-03-12 11:13:52);
         builder
             .add_folder(CompressionType::None)
             .add_file("\u{2603}.txt")

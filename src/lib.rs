@@ -93,7 +93,6 @@
 #![warn(missing_docs)]
 
 extern crate byteorder;
-extern crate chrono;
 extern crate flate2;
 
 mod internal;

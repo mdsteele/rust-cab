@@ -1,22 +1,24 @@
-use chrono::{Datelike, Duration, NaiveDate, NaiveDateTime, Timelike};
+//use chrono::{Datelike, Duration, NaiveDate, NaiveDateTime, Timelike};
+use std::convert::TryInto;
+use time::PrimitiveDateTime;
 
 // ========================================================================= //
 
-pub fn datetime_from_bits(date: u16, time: u16) -> Option<NaiveDateTime> {
+pub fn datetime_from_bits(date: u16, time: u16) -> Option<PrimitiveDateTime> {
     let year = (date >> 9) as i32 + 1980;
-    let month = ((date >> 5) & 0xf) as u32;
-    let day = (date & 0x1f) as u32;
-    let naive_date = match NaiveDate::from_ymd_opt(year, month, day) {
-        Some(naive_date) => naive_date,
-        None => return None,
-    };
-    let hour = (time >> 11) as u32;
-    let minute = ((time >> 5) & 0x3f) as u32;
-    let second = 2 * (time & 0x1f) as u32;
-    naive_date.and_hms_opt(hour, minute, second)
+    let month = (((date >> 5) & 0xf) as u8).try_into().ok()?;
+    let day = (date & 0x1f) as u8;
+    let date = time::Date::from_calendar_date(year, month, day).ok()?;
+
+    let hour = (time >> 11) as u8;
+    let minute = ((time >> 5) & 0x3f) as u8;
+    let second = 2 * (time & 0x1f) as u8;
+    let time = time::Time::from_hms(hour, minute, second).ok()?;
+
+    Some(PrimitiveDateTime::new(date, time))
 }
 
-pub fn datetime_to_bits(mut datetime: NaiveDateTime) -> (u16, u16) {
+pub fn datetime_to_bits(mut datetime: PrimitiveDateTime) -> (u16, u16) {
     // Clamp to legal range:
     if datetime.year() < 1980 {
         return (0x21, 0); // 1980-01-01 00:00:00
@@ -26,7 +28,7 @@ pub fn datetime_to_bits(mut datetime: NaiveDateTime) -> (u16, u16) {
 
     // Round to nearest two seconds:
     if datetime.second() % 2 != 0 {
-        datetime += Duration::seconds(1);
+        datetime += time::Duration::seconds(1);
     }
 
     let year = datetime.year() as u16;
@@ -45,26 +47,26 @@ pub fn datetime_to_bits(mut datetime: NaiveDateTime) -> (u16, u16) {
 #[cfg(test)]
 mod tests {
     use super::{datetime_from_bits, datetime_to_bits};
-    use chrono::NaiveDate;
+    use time::macros::datetime;
 
     #[test]
     fn valid_datetime_bits() {
-        let dt = NaiveDate::from_ymd(2018, 1, 6).and_hms(15, 19, 42);
+        let dt = datetime!(2018-01-06 15:19:42);
         assert_eq!(datetime_to_bits(dt), (0x4c26, 0x7a75));
         assert_eq!(datetime_from_bits(0x4c26, 0x7a75), Some(dt));
     }
 
     #[test]
     fn datetime_outside_range() {
-        let dt = NaiveDate::from_ymd(1977, 2, 3).and_hms(4, 5, 6);
+        let dt = datetime!(1977-02-03 4:05:06);
         let bits = datetime_to_bits(dt);
-        let dt = NaiveDate::from_ymd(1980, 1, 1).and_hms(0, 0, 0);
+        let dt = datetime!(1980-01-01 0:00:00);
         assert_eq!(datetime_from_bits(bits.0, bits.1), Some(dt));
         assert_eq!(bits, (0x0021, 0x0000));
 
-        let dt = NaiveDate::from_ymd(2110, 2, 3).and_hms(4, 5, 6);
+        let dt = datetime!(2110-02-03 4:05:06);
         let bits = datetime_to_bits(dt);
-        let dt = NaiveDate::from_ymd(2107, 12, 31).and_hms(23, 59, 58);
+        let dt = datetime!(2107-12-31 23:59:58);
         assert_eq!(datetime_from_bits(bits.0, bits.1), Some(dt));
         assert_eq!(bits, (0xff9f, 0xbf7d));
     }
@@ -72,16 +74,16 @@ mod tests {
     #[test]
     fn datetime_round_to_nearest_two_seconds() {
         // Round down:
-        let dt = NaiveDate::from_ymd(2012, 3, 4).and_hms_milli(1, 2, 6, 900);
+        let dt = datetime!(2012-03-04 1:02:06.900);
         let bits = datetime_to_bits(dt);
-        let dt = NaiveDate::from_ymd(2012, 3, 4).and_hms(1, 2, 6);
+        let dt = datetime!(2012-03-04 1:02:06);
         assert_eq!(datetime_from_bits(bits.0, bits.1), Some(dt));
         assert_eq!(bits, (0x4064, 0x0843));
 
         // Round up:
-        let dt = NaiveDate::from_ymd(2012, 3, 4).and_hms_milli(5, 6, 59, 3);
+        let dt = datetime!(2012-03-04 5:06:59.3);
         let bits = datetime_to_bits(dt);
-        let dt = NaiveDate::from_ymd(2012, 3, 4).and_hms(5, 7, 0);
+        let dt = datetime!(2012-03-04 5:07:00);
         assert_eq!(datetime_from_bits(bits.0, bits.1), Some(dt));
         assert_eq!(bits, (0x4064, 0x28e0));
     }

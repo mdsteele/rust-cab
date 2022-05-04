@@ -1,14 +1,10 @@
-extern crate cab;
-extern crate chrono;
-extern crate clap;
-
 use cab::{Cabinet, CabinetBuilder, CompressionType, FileEntry, FolderEntry};
-use chrono::NaiveDateTime;
 use clap::{App, Arg, SubCommand};
 use std::fs::{self, File};
 use std::io;
 use std::path::PathBuf;
 use std::time::UNIX_EPOCH;
+use time::{OffsetDateTime, PrimitiveDateTime};
 
 // ========================================================================= //
 
@@ -100,9 +96,14 @@ fn main() {
                     let file = folder.add_file(filename);
                     if let Ok(time) = metadata.modified() {
                         if let Ok(dur) = time.duration_since(UNIX_EPOCH) {
-                            let secs = dur.as_secs() as i64;
-                            let ndt = NaiveDateTime::from_timestamp(secs, 0);
-                            file.set_datetime(ndt);
+                            let dt = OffsetDateTime::from_unix_timestamp(
+                                dur.as_secs() as i64,
+                            )
+                            .unwrap();
+                            file.set_datetime(PrimitiveDateTime::new(
+                                dt.date(),
+                                dt.time(),
+                            ));
                         }
                     }
                     file_index += 1;
