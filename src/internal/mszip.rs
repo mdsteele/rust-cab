@@ -184,12 +184,12 @@ mod tests {
     mod sys {
         #![allow(non_camel_case_types)]
 
-        use self::winapi::basetsd::{PSIZE_T, SIZE_T};
-        use self::winapi::minwindef::{BOOL, DWORD, FALSE, LPVOID, TRUE};
-        use self::winapi::winnt::{HANDLE, PVOID};
         use super::super::DEFLATE_MAX_DICT_LEN;
         use std::mem;
         use std::ptr;
+        use winapi::shared::basetsd::{PSIZE_T, SIZE_T};
+        use winapi::shared::minwindef::{BOOL, DWORD, FALSE, LPVOID, TRUE};
+        use winapi::um::winnt::{HANDLE, PVOID};
 
         const COMPRESS_ALGORITHM_MSZIP: DWORD = 2;
         const COMPRESS_RAW: DWORD = 1 << 29;
