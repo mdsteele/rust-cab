@@ -67,4 +67,26 @@ fn seek_within_big_mszipped_file() {
     }
 }
 
+// Regression test for https://github.com/mdsteele/rust-cab/issues/15
+#[test]
+fn seek_within_empty_file() {
+    let mut cab_builder = cab::CabinetBuilder::new();
+    cab_builder.add_folder(cab::CompressionType::None).add_file("empty.txt");
+    let mut cab_writer = cab_builder.build(Cursor::new(Vec::new())).unwrap();
+    while let Some(mut file_writer) = cab_writer.next_file().unwrap() {
+        file_writer.write_all(b"").unwrap();
+    }
+    let cab_file = cab_writer.finish().unwrap().into_inner();
+
+    let mut cabinet = cab::Cabinet::new(Cursor::new(cab_file)).unwrap();
+    for folder in cabinet.folder_entries() {
+        assert_eq!(folder.num_data_blocks(), 0);
+    }
+    let mut file_reader = cabinet.read_file("empty.txt").unwrap();
+    file_reader.seek(SeekFrom::Start(0)).unwrap();
+    let mut data = Vec::<u8>::new();
+    file_reader.read_to_end(&mut data).unwrap();
+    assert!(data.is_empty());
+}
+
 // ========================================================================= //

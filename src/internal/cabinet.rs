@@ -597,11 +597,13 @@ impl<'a, R: Read + Seek> Seek for FolderReader<'a, R> {
         if new_offset < self.current_block_start() {
             self.rewind()?;
         }
-        // TODO: If folder is uncompressed, we should just jump straight to the
-        // correct block without "decompressing" those in between.
-        while self.data_blocks[self.current_block_index].0 < new_offset {
-            self.current_block_index += 1;
-            self.load_block()?;
+        if new_offset > 0 {
+            // TODO: If folder is uncompressed, we should just jump straight to
+            // the correct block without "decompressing" those in between.
+            while self.data_blocks[self.current_block_index].0 < new_offset {
+                self.current_block_index += 1;
+                self.load_block()?;
+            }
         }
         debug_assert!(new_offset >= self.current_block_start());
         self.current_offset_within_block =
