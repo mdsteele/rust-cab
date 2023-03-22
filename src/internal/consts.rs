@@ -1,5 +1,3 @@
-// ========================================================================= //
-
 pub const FILE_SIGNATURE: u32 = 0x4643534d; // "MSCF" stored little-endian
 
 pub const VERSION_MAJOR: u8 = 1;
@@ -25,5 +23,3 @@ pub const ATTR_SYSTEM: u16 = 0x04;
 pub const ATTR_ARCH: u16 = 0x20;
 pub const ATTR_EXEC: u16 = 0x40;
 pub const ATTR_NAME_IS_UTF: u16 = 0x80;
-
-// ========================================================================= //

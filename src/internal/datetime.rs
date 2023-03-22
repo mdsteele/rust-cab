@@ -1,8 +1,6 @@
-//use chrono::{Datelike, Duration, NaiveDate, NaiveDateTime, Timelike};
 use std::convert::TryInto;
-use time::PrimitiveDateTime;
 
-// ========================================================================= //
+use time::PrimitiveDateTime;
 
 pub fn datetime_from_bits(date: u16, time: u16) -> Option<PrimitiveDateTime> {
     let year = (date >> 9) as i32 + 1980;
@@ -42,12 +40,11 @@ pub fn datetime_to_bits(mut datetime: PrimitiveDateTime) -> (u16, u16) {
     (date, time)
 }
 
-// ========================================================================= //
-
 #[cfg(test)]
 mod tests {
-    use super::{datetime_from_bits, datetime_to_bits};
     use time::macros::datetime;
+
+    use super::{datetime_from_bits, datetime_to_bits};
 
     #[test]
     fn valid_datetime_bits() {

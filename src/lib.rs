@@ -91,12 +91,12 @@
 //! ```
 
 #![warn(missing_docs)]
-mod internal;
-
 pub use crate::internal::builder::{
     CabinetBuilder, CabinetWriter, FileBuilder, FileWriter, FolderBuilder,
 };
-pub use crate::internal::cabinet::{
-    Cabinet, FileEntries, FileEntry, FileReader, FolderEntries, FolderEntry,
-};
+pub use crate::internal::cabinet::Cabinet;
 pub use crate::internal::ctype::CompressionType;
+pub use crate::internal::file::{FileEntries, FileEntry};
+pub use crate::internal::folder::{FolderEntries, FolderEntry};
+
+mod internal;

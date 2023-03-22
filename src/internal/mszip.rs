@@ -1,16 +1,13 @@
+use std::io;
+
 use byteorder::{LittleEndian, WriteBytesExt};
 use flate2;
 use flate2::Compression;
-use std::io;
-
-// ========================================================================= //
 
 const MSZIP_SIGNATURE: u16 = 0x4B43; // "CK" stored little-endian
 const MSZIP_SIGNATURE_LEN: usize = 2;
 const MSZIP_BLOCK_TERMINATOR: u16 = 0x0003;
 const DEFLATE_MAX_DICT_LEN: usize = 0x8000;
-
-// ========================================================================= //
 
 pub struct MsZipCompressor {
     compressor: flate2::Compress,
@@ -38,7 +35,9 @@ impl MsZipCompressor {
         };
         match self.compressor.compress_vec(data, &mut out, flush) {
             Ok(_) => {}
-            Err(error) => invalid_data!("MSZIP compression failed: {}", error),
+            Err(error) => {
+                return invalid_data!("MSZIP compression failed: {}", error)
+            }
         }
         if !is_last_block {
             out.write_u16::<LittleEndian>(MSZIP_BLOCK_TERMINATOR)?;
@@ -58,8 +57,6 @@ impl MsZipCompressor {
     }
 }
 
-// ========================================================================= //
-
 pub struct MsZipDecompressor {
     decompressor: flate2::Decompress,
     dictionary: Vec<u8>,
@@ -76,13 +73,13 @@ impl MsZipDecompressor {
     pub fn decompress_block(
         &mut self,
         data: &[u8],
-        uncompressed_size: u16,
+        uncompressed_size: usize,
     ) -> io::Result<Vec<u8>> {
         // Check signature:
         if data.len() < MSZIP_SIGNATURE_LEN
             || ((data[0] as u16) | ((data[1] as u16) << 8)) != MSZIP_SIGNATURE
         {
-            invalid_data!(
+            return invalid_data!(
                 "MSZIP decompression failed: Invalid block signature"
             );
         }
@@ -105,16 +102,16 @@ impl MsZipDecompressor {
             }
         }
         // Decompress data:
-        let mut out = Vec::<u8>::with_capacity(uncompressed_size as usize);
+        let mut out = Vec::<u8>::with_capacity(uncompressed_size);
         let flush = flate2::FlushDecompress::Finish;
         match self.decompressor.decompress_vec(data, &mut out, flush) {
             Ok(_) => {}
             Err(error) => {
-                invalid_data!("MSZIP decompression failed: {}", error);
+                return invalid_data!("MSZIP decompression failed: {}", error);
             }
         }
-        if out.len() != uncompressed_size as usize {
-            invalid_data!(
+        if out.len() != uncompressed_size {
+            return invalid_data!(
                 "MSZIP decompression failed: Incorrect uncompressed size \
                  (expected {}, was actually {})",
                 uncompressed_size,
@@ -137,8 +134,6 @@ impl MsZipDecompressor {
     }
 }
 
-// ========================================================================= //
-
 #[cfg(test)]
 mod tests {
     use rand::RngCore;
@@ -157,9 +152,8 @@ mod tests {
               do eiusmod tempor incididunt ut labore et dolore magna aliqua.";
         assert!(input.len() < expected.len());
         let mut decompressor = MsZipDecompressor::new();
-        let output = decompressor
-            .decompress_block(&input, expected.len() as u16)
-            .unwrap();
+        let output =
+            decompressor.decompress_block(&input, expected.len()).unwrap();
         assert_eq!(output, expected);
     }
 
@@ -184,12 +178,14 @@ mod tests {
     mod sys {
         #![allow(non_camel_case_types)]
 
-        use super::super::DEFLATE_MAX_DICT_LEN;
         use std::mem;
         use std::ptr;
+
         use winapi::shared::basetsd::{PSIZE_T, SIZE_T};
         use winapi::shared::minwindef::{BOOL, DWORD, FALSE, LPVOID, TRUE};
         use winapi::um::winnt::{HANDLE, PVOID};
+
+        use super::super::DEFLATE_MAX_DICT_LEN;
 
         const COMPRESS_ALGORITHM_MSZIP: DWORD = 2;
         const COMPRESS_RAW: DWORD = 1 << 29;
@@ -337,9 +333,7 @@ mod tests {
         let mut decompressor = MsZipDecompressor::new();
         for (size, compressed) in blocks.into_iter() {
             output.append(
-                &mut decompressor
-                    .decompress_block(&compressed, size as u16)
-                    .unwrap(),
+                &mut decompressor.decompress_block(&compressed, size).unwrap(),
             );
         }
         output
@@ -428,5 +422,3 @@ mod tests {
         &random_data(DEFLATE_MAX_DICT_LEN * 10)
     );
 }
-
-// ========================================================================= //

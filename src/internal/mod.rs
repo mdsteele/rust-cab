@@ -7,4 +7,6 @@ pub mod checksum;
 pub mod consts;
 pub mod ctype;
 pub mod datetime;
+pub mod file;
+pub mod folder;
 pub mod mszip;

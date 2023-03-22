@@ -1,7 +1,5 @@
 use std::io;
 
-// ========================================================================= //
-
 const CTYPE_NONE: u16 = 0;
 const CTYPE_MSZIP: u16 = 1;
 const CTYPE_QUANTUM: u16 = 2;
@@ -14,8 +12,6 @@ const QUANTUM_MEMORY_MAX: u16 = 21;
 
 const LZX_WINDOW_MIN: u16 = 15;
 const LZX_WINDOW_MAX: u16 = 21;
-
-// ========================================================================= //
 
 /// A scheme for compressing data within the cabinet.
 #[derive(Clone, Copy, Debug, Hash, Eq, PartialEq)]
@@ -43,21 +39,27 @@ impl CompressionType {
         } else if ctype == CTYPE_QUANTUM {
             let level = (bits & 0x00f0) >> 4;
             if !(QUANTUM_LEVEL_MIN..=QUANTUM_LEVEL_MAX).contains(&level) {
-                invalid_data!("Invalid Quantum level: 0x{:02x}", level);
+                return invalid_data!(
+                    "Invalid Quantum level: 0x{:02x}",
+                    level
+                );
             }
             let memory = (bits & 0x1f00) >> 8;
             if !(QUANTUM_MEMORY_MIN..=QUANTUM_MEMORY_MAX).contains(&memory) {
-                invalid_data!("Invalid Quantum memory: 0x{:02x}", memory);
+                return invalid_data!(
+                    "Invalid Quantum memory: 0x{:02x}",
+                    memory
+                );
             }
             Ok(CompressionType::Quantum(level, memory))
         } else if ctype == CTYPE_LZX {
             let window = (bits & 0x1f00) >> 8;
             if !(LZX_WINDOW_MIN..=LZX_WINDOW_MAX).contains(&window) {
-                invalid_data!("Invalid LZX window: 0x{:02x}", window);
+                return invalid_data!("Invalid LZX window: 0x{:02x}", window);
             }
             Ok(CompressionType::Lzx(window))
         } else {
-            invalid_data!("Invalid compression type: 0x{:04x}", bits);
+            return invalid_data!("Invalid compression type: 0x{:04x}", bits);
         }
     }
 
@@ -79,8 +81,6 @@ impl CompressionType {
         }
     }
 }
-
-// ========================================================================= //
 
 #[cfg(test)]
 mod tests {
@@ -114,5 +114,3 @@ mod tests {
         );
     }
 }
-
-// ========================================================================= //
