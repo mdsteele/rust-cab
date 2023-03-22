@@ -22,7 +22,7 @@ pub struct FileEntry {
     pub(crate) folder_index: u16,
     datetime: Option<PrimitiveDateTime>,
     uncompressed_size: u32,
-    uncompressed_offset: u32,
+    // uncompressed_offset: u32,
     attributes: u16,
 }
 
@@ -132,7 +132,7 @@ pub(crate) fn parse_file_entry<R: Read>(
     mut reader: R,
 ) -> io::Result<FileEntry> {
     let uncompressed_size = reader.read_u32::<LittleEndian>()?;
-    let uncompressed_offset = reader.read_u32::<LittleEndian>()?;
+    let _uncompressed_offset = reader.read_u32::<LittleEndian>()?;
     let folder_index = reader.read_u16::<LittleEndian>()?;
     let date = reader.read_u16::<LittleEndian>()?;
     let time = reader.read_u16::<LittleEndian>()?;
@@ -145,7 +145,7 @@ pub(crate) fn parse_file_entry<R: Read>(
         folder_index,
         datetime,
         uncompressed_size,
-        uncompressed_offset,
+        // uncompressed_offset,
         attributes,
     };
     Ok(entry)

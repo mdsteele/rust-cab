@@ -352,7 +352,7 @@ mod tests {
 
             let mut data = Vec::new();
             file_entry.read_to_end(&mut data).unwrap();
-            assert_eq!(data, b"Hello, world!\n");
+            assert_eq!(data, b"See you later!\n");
         }
     }
 
@@ -385,7 +385,7 @@ mod tests {
 
             let mut data = Vec::new();
             file_entry.read_to_end(&mut data).unwrap();
-            assert_eq!(data, b"Hello, world!\n");
+            assert_eq!(data, b"Hello, world!\r\n");
         }
         {
             let mut file_entry = file_entries.next().unwrap();
@@ -393,7 +393,7 @@ mod tests {
 
             let mut data = Vec::new();
             file_entry.read_to_end(&mut data).unwrap();
-            assert_eq!(data, b"Hello, world!\n");
+            assert_eq!(data, b"See you later!\r\n");
         }
     }
 

@@ -49,8 +49,6 @@ pub struct FolderReader<'a> {
 }
 
 struct BlockEntry {
-    compressed_size: u16,
-    uncompressed_size: u16,
     data: RefCell<Cursor<Vec<u8>>>,
 }
 
@@ -187,11 +185,7 @@ impl<'a> FolderReader<'a> {
         };
 
         *self.current_block_index.borrow_mut() += 1;
-        Ok(Some(BlockEntry {
-            compressed_size,
-            uncompressed_size,
-            data: RefCell::new(Cursor::new(data)),
-        }))
+        Ok(Some(BlockEntry { data: RefCell::new(Cursor::new(data)) }))
     }
 }
 

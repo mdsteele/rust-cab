@@ -96,7 +96,7 @@ pub use crate::internal::builder::{
 };
 pub use crate::internal::cabinet::Cabinet;
 pub use crate::internal::ctype::CompressionType;
-pub use crate::internal::file::{FileEntries, FileEntry};
-pub use crate::internal::folder::{FolderEntries, FolderEntry};
+pub use crate::internal::file::{FileEntries, FileReader};
+pub use crate::internal::folder::{FolderEntries, FolderReader};
 
 mod internal;
