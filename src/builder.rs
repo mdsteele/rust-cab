@@ -1,12 +1,14 @@
+use std::io::{self, Seek, SeekFrom, Write};
+use std::mem;
+
+use byteorder::{LittleEndian, WriteBytesExt};
+use time::PrimitiveDateTime;
+
 use crate::checksum::Checksum;
 use crate::consts;
 use crate::ctype::CompressionType;
 use crate::datetime::datetime_to_bits;
 use crate::mszip::MsZipCompressor;
-use byteorder::{LittleEndian, WriteBytesExt};
-use std::io::{self, Seek, SeekFrom, Write};
-use std::mem;
-use time::PrimitiveDateTime;
 
 const MAX_UNCOMPRESSED_BLOCK_SIZE: usize = 0x8000;
 
@@ -570,7 +572,7 @@ impl<W: Write + Seek> FolderWriter<W> {
         };
         let compressed_size = compressed.len() as u16;
         let mut checksum = Checksum::new();
-        checksum.append(&compressed);
+        checksum.update(&compressed);
         let checksum_value = checksum.value()
             ^ ((compressed_size as u32) | ((uncompressed_size as u32) << 16));
         let total_data_block_size = 8 + compressed_size as u64;
@@ -609,10 +611,13 @@ impl<W: Write + Seek> Write for FolderWriter<W> {
 
 #[cfg(test)]
 mod tests {
-    use super::CabinetBuilder;
-    use crate::ctype::CompressionType;
     use std::io::{Cursor, Write};
+
     use time::macros::datetime;
+
+    use crate::ctype::CompressionType;
+
+    use super::CabinetBuilder;
 
     #[test]
     fn write_uncompressed_cabinet_with_one_file() {

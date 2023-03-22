@@ -16,7 +16,9 @@ fn main() -> anyhow::Result<()> {
     let input_file = File::open(cli.path)?;
     let cabinet = cab::Cabinet::new(input_file)
         .context("Failed to open cabinet file")?;
-    for (index, folder) in cabinet.folder_entries().enumerate() {
+    let mut index = 0;
+    while let Some(folder) = cabinet.folder_entries().next() {
+        let folder = folder.context("Failed to get folders")?;
         println!("Folder #{}:", index);
         println!("  compression_type = {:?}", folder.compression_type());
         println!("  reserve_data = {:?}", folder.reserve_data());
@@ -27,6 +29,8 @@ fn main() -> anyhow::Result<()> {
             println!("  {:?} ({} bytes)", file.name(), size);
             total_size += size;
         }
+
+        index += 1;
         println!("  {} bytes total", total_size);
     }
 
