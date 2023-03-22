@@ -21,6 +21,7 @@ pub struct FolderEntries<'a> {
 }
 
 /// Metadata about one folder in a cabinet.
+#[derive(Clone)]
 pub struct FolderEntry {
     first_data_block_offset: u32,
     num_data_blocks: u16,
@@ -39,27 +40,73 @@ enum FolderDecompressor {
 
 /// A reader for reading decompressed data from a cabinet folder.
 pub struct FolderReader<'a> {
+    pub(crate) inner: FolderReaderInner<'a>,
+}
+
+pub(crate) struct FolderReaderInner<'a> {
     archive: &'a Cabinet<dyn ReadSeek + 'a>,
     entry: &'a FolderEntry,
+    files: &'a [FileEntry],
     data_reserve_size: u8,
     decompressor: RefCell<FolderDecompressor>,
     current_block: RefCell<Option<BlockEntry>>,
     current_block_index: RefCell<u16>,
-    files: &'a [FileEntry],
+    next_offset: RefCell<u64>,
 }
 
 struct BlockEntry {
     data: RefCell<Cursor<Vec<u8>>>,
 }
 
-impl<'a> Iterator for FolderEntries<'a> {
-    type Item = io::Result<FolderReader<'a>>;
-
-    fn next(&mut self) -> Option<io::Result<FolderReader<'a>>> {
+impl<'a> FolderEntries<'a> {
+    /// Returns next folder.
+    #[allow(clippy::should_implement_trait)]
+    pub fn next(&mut self) -> Option<io::Result<FolderReader<'_>>> {
         let entry = self.iter.next()?;
         let files = &self.files
             [entry.file_idx_start..entry.file_idx_start + entry.files_count];
+        let inner = match FolderReaderInner::new(
+            self.archive,
+            entry,
+            self.data_reserve_size,
+            files,
+        ) {
+            Ok(inner) => inner,
+            Err(e) => return Some(Err(e)),
+        };
+        Some(Ok(FolderReader { inner }))
+    }
+}
 
+impl<'a> FolderReader<'a> {
+    /// Returns the scheme used to compress this folder's data.
+    pub fn compression_type(&self) -> CompressionType {
+        self.inner.entry.compression_type
+    }
+
+    /// Returns the number of data blocks used to store this folder's data.
+    pub fn num_data_blocks(&self) -> u16 {
+        self.inner.entry.num_data_blocks
+    }
+
+    /// Returns the application-defined reserve data for this folder.
+    pub fn reserve_data(&self) -> &[u8] {
+        &self.inner.entry.reserve_data
+    }
+
+    /// Returns an iterator over the file entries in this folder.
+    pub fn file_entries<'b: 'a>(&'b self) -> FileEntries<'b> {
+        FileEntries { reader: self, iter: self.inner.files.iter() }
+    }
+}
+
+impl<'a> FolderReaderInner<'a> {
+    fn new(
+        archive: &'a Cabinet<dyn ReadSeek + 'a>,
+        entry: &'a FolderEntry,
+        data_reserve_size: u8,
+        files: &'a [FileEntry],
+    ) -> io::Result<Self> {
         let decompressor = match entry.compression_type {
             CompressionType::None => FolderDecompressor::Uncompressed,
             CompressionType::MsZip => {
@@ -80,70 +127,38 @@ impl<'a> Iterator for FolderEntries<'a> {
                     25 => lzxd::WindowSize::MB32,
 
                     _ => {
-                        return Some(invalid_data!(
-                            "LZX given with invalid window size"
-                        ))
+                        invalid_data!("LZX given with invalid window size")
                     }
                 });
                 FolderDecompressor::Lzx(Box::new(lzxd))
             }
             CompressionType::Quantum(_, _) => {
-                return Some(invalid_data!(
-                    "Quantum decompression is not yet supported."
-                ))
+                invalid_data!("Quantum decompression is not yet supported.")
             }
         };
-        Some(Ok(FolderReader {
-            archive: self.archive,
+
+        Ok(FolderReaderInner {
+            archive,
             entry,
-            data_reserve_size: self.data_reserve_size,
+            files,
+            data_reserve_size,
             decompressor: RefCell::new(decompressor),
             current_block: RefCell::new(None),
             current_block_index: RefCell::new(0),
-            files,
-        }))
+            next_offset: RefCell::new(entry.first_data_block_offset as u64),
+        })
     }
 
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        self.iter.size_hint()
-    }
-}
-
-impl<'a> ExactSizeIterator for FolderEntries<'a> {}
-
-impl<'a> FolderReader<'a> {
-    /// Returns the scheme used to compress this folder's data.
-    pub fn compression_type(&self) -> CompressionType {
-        self.entry.compression_type
-    }
-
-    /// Returns the number of data blocks used to store this folder's data.
-    pub fn num_data_blocks(&self) -> u16 {
-        self.entry.num_data_blocks
-    }
-
-    /// Returns the application-defined reserve data for this folder.
-    pub fn reserve_data(&self) -> &[u8] {
-        &self.entry.reserve_data
-    }
-
-    /// Returns an iterator over the file entries in this folder.
-    pub fn file_entries<'r>(&'r self) -> FileEntries<'r, 'a> {
-        FileEntries { reader: self, iter: self.files.iter() }
-    }
-
-    fn load_block(&self) -> io::Result<Option<BlockEntry>> {
+    fn load_block(&self) -> io::Result<Option<()>> {
         let current_block_index = *self.current_block_index.borrow();
-        if current_block_index == self.num_data_blocks() {
+        if current_block_index == self.entry.num_data_blocks {
             return Ok(None);
         }
 
         let archive = &mut &self.archive.inner;
-        if current_block_index == 0 {
-            archive.seek(SeekFrom::Start(
-                self.entry.first_data_block_offset as u64,
-            ))?;
-        }
+
+        let next_offset = *self.next_offset.borrow();
+        archive.seek(SeekFrom::Start(next_offset))?;
 
         let expected_checksum = archive.read_u32::<LittleEndian>()?;
         let compressed_size = archive.read_u16::<LittleEndian>()?;
@@ -161,9 +176,8 @@ impl<'a> FolderReader<'a> {
                 ^ ((compressed_size as u32)
                     | ((uncompressed_size as u32) << 16));
             if actual_checksum != expected_checksum {
-                return invalid_data!(
-                    "Checksum error in data block {} \
-                     (expected {:08x}, actual {:08x})",
+                invalid_data!(
+                    "Checksum error in data block {} (expected {:08x}, actual {:08x})",
                     current_block_index,
                     expected_checksum,
                     actual_checksum
@@ -185,11 +199,16 @@ impl<'a> FolderReader<'a> {
         };
 
         *self.current_block_index.borrow_mut() += 1;
-        Ok(Some(BlockEntry { data: RefCell::new(Cursor::new(data)) }))
+        let next_offset = archive.stream_position()?;
+        self.next_offset.replace(next_offset);
+
+        let block = BlockEntry { data: RefCell::new(Cursor::new(data)) };
+        self.current_block.replace(Some(block));
+        Ok(Some(()))
     }
 }
 
-impl<'a> Read for &'a FolderReader<'a> {
+impl<'a> Read for &'a FolderReaderInner<'a> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         if buf.is_empty() {
             return Ok(0);
@@ -198,10 +217,7 @@ impl<'a> Read for &'a FolderReader<'a> {
             let is_none = self.current_block.borrow().is_none();
             if is_none {
                 match self.load_block()? {
-                    Some(block) => {
-                        self.current_block.replace(Some(block));
-                        continue;
-                    }
+                    Some(_) => continue,
                     None => break Ok(0),
                 }
             } else {

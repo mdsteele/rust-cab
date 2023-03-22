@@ -39,27 +39,21 @@ impl CompressionType {
         } else if ctype == CTYPE_QUANTUM {
             let level = (bits & 0x00f0) >> 4;
             if !(QUANTUM_LEVEL_MIN..=QUANTUM_LEVEL_MAX).contains(&level) {
-                return invalid_data!(
-                    "Invalid Quantum level: 0x{:02x}",
-                    level
-                );
+                invalid_data!("Invalid Quantum level: 0x{:02x}", level);
             }
             let memory = (bits & 0x1f00) >> 8;
             if !(QUANTUM_MEMORY_MIN..=QUANTUM_MEMORY_MAX).contains(&memory) {
-                return invalid_data!(
-                    "Invalid Quantum memory: 0x{:02x}",
-                    memory
-                );
+                invalid_data!("Invalid Quantum memory: 0x{:02x}", memory);
             }
             Ok(CompressionType::Quantum(level, memory))
         } else if ctype == CTYPE_LZX {
             let window = (bits & 0x1f00) >> 8;
             if !(LZX_WINDOW_MIN..=LZX_WINDOW_MAX).contains(&window) {
-                return invalid_data!("Invalid LZX window: 0x{:02x}", window);
+                invalid_data!("Invalid LZX window: 0x{:02x}", window);
             }
             Ok(CompressionType::Lzx(window))
         } else {
-            return invalid_data!("Invalid compression type: 0x{:04x}", bits);
+            invalid_data!("Invalid compression type: 0x{:04x}", bits);
         }
     }
 

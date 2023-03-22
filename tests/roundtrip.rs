@@ -1,7 +1,6 @@
 use std::io::{Cursor, Read, Write};
-use time::macros::datetime;
 
-// ========================================================================= //
+use time::macros::datetime;
 
 #[test]
 fn cabinet_with_one_small_uncompressed_text_file() {
@@ -24,18 +23,18 @@ fn cabinet_with_one_small_uncompressed_text_file() {
     }
     let cab_file = cab_writer.finish().unwrap().into_inner();
 
-    let mut cabinet = cab::Cabinet::new(Cursor::new(cab_file)).unwrap();
-    {
-        let file_entry = cabinet.get_file_entry("lorem_ipsum.txt").unwrap();
-        assert_eq!(file_entry.datetime(), Some(datetime));
-        assert!(file_entry.is_read_only());
-        assert!(!file_entry.is_hidden());
-        assert!(file_entry.is_system());
-        assert!(!file_entry.is_archive());
-    }
+    let cabinet = cab::Cabinet::new(Cursor::new(cab_file)).unwrap();
+    let mut folder_entries = cabinet.folder_entries();
+    let folder = folder_entries.next().unwrap().unwrap();
+    let mut file = folder.file_entries().next().unwrap();
+
+    assert_eq!(file.datetime(), Some(datetime));
+    assert!(file.is_read_only());
+    assert!(!file.is_hidden());
+    assert!(file.is_system());
+    assert!(!file.is_archive());
     let mut output = Vec::new();
-    let mut file_reader = cabinet.read_file("lorem_ipsum.txt").unwrap();
-    file_reader.read_to_end(&mut output).unwrap();
+    file.read_to_end(&mut output).unwrap();
     assert_eq!(String::from_utf8_lossy(&output), original);
 }
 
@@ -53,14 +52,14 @@ fn cabinet_with_one_small_mszipped_text_file() {
     }
     let cab_file = cab_writer.finish().unwrap().into_inner();
 
-    let mut cabinet = cab::Cabinet::new(Cursor::new(cab_file)).unwrap();
-    assert_eq!(
-        cabinet.folder_entries().nth(0).unwrap().compression_type(),
-        cab::CompressionType::MsZip
-    );
+    let cabinet = cab::Cabinet::new(Cursor::new(cab_file)).unwrap();
+    let mut folder_entries = cabinet.folder_entries();
+    let folder = folder_entries.next().unwrap().unwrap();
+    assert_eq!(folder.compression_type(), cab::CompressionType::MsZip);
+
+    let mut file = folder.file_entries().next().unwrap();
     let mut output = Vec::new();
-    let mut file_reader = cabinet.read_file("lorem_ipsum.txt").unwrap();
-    file_reader.read_to_end(&mut output).unwrap();
+    file.read_to_end(&mut output).unwrap();
     assert_eq!(String::from_utf8_lossy(&output), original);
 }
 
@@ -79,17 +78,19 @@ fn cabinet_with_one_big_uncompressed_text_file() {
     let cab_file = cab_writer.finish().unwrap().into_inner();
     assert!(cab_file.len() > original.len());
 
-    let mut cabinet = cab::Cabinet::new(Cursor::new(cab_file)).unwrap();
+    let cabinet = cab::Cabinet::new(Cursor::new(cab_file)).unwrap();
+    let mut folder_entries = cabinet.folder_entries();
+    let folder = folder_entries.next().unwrap().unwrap();
     {
-        let folder = cabinet.folder_entries().nth(0).unwrap();
         assert_eq!(folder.compression_type(), cab::CompressionType::None);
         assert!(folder.num_data_blocks() > 1);
         let file = folder.file_entries().nth(0).unwrap();
         assert_eq!(file.uncompressed_size() as usize, original.len());
     }
+
+    let mut file = folder.file_entries().next().unwrap();
     let mut output = Vec::new();
-    let mut file_reader = cabinet.read_file("lorem_ipsum.txt").unwrap();
-    file_reader.read_to_end(&mut output).unwrap();
+    file.read_to_end(&mut output).unwrap();
     assert_eq!(output.len(), original.len());
     assert_eq!(String::from_utf8_lossy(&output), original);
 }
@@ -109,21 +110,20 @@ fn cabinet_with_one_big_mszipped_text_file() {
     let cab_file = cab_writer.finish().unwrap().into_inner();
     assert!(cab_file.len() < original.len());
 
-    let mut cabinet = cab::Cabinet::new(Cursor::new(cab_file)).unwrap();
-    {
-        let folder = cabinet.folder_entries().nth(0).unwrap();
-        assert_eq!(folder.compression_type(), cab::CompressionType::MsZip);
-        let file = folder.file_entries().nth(0).unwrap();
-        assert_eq!(file.uncompressed_size() as usize, original.len());
-    }
+    let cabinet = cab::Cabinet::new(Cursor::new(cab_file)).unwrap();
+    let mut folder_entries = cabinet.folder_entries();
+
+    let folder = folder_entries.next().unwrap().unwrap();
+    assert_eq!(folder.compression_type(), cab::CompressionType::MsZip);
+    let file = folder.file_entries().nth(0).unwrap();
+    assert_eq!(file.uncompressed_size() as usize, original.len());
+
+    let mut file = folder.file_entries().next().unwrap();
     let mut output = Vec::new();
-    let mut file_reader = cabinet.read_file("lorem_ipsum.txt").unwrap();
-    file_reader.read_to_end(&mut output).unwrap();
+    file.read_to_end(&mut output).unwrap();
     assert_eq!(output.len(), original.len());
     assert_eq!(String::from_utf8_lossy(&output), original);
 }
-
-// ========================================================================= //
 
 fn random_data_roundtrip(num_bytes: usize, ctype: cab::CompressionType) {
     use rand::{RngCore, SeedableRng};
@@ -139,18 +139,19 @@ fn random_data_roundtrip(num_bytes: usize, ctype: cab::CompressionType) {
     }
     let cab_file = cab_writer.finish().unwrap().into_inner();
 
-    let mut cabinet = cab::Cabinet::new(Cursor::new(cab_file)).unwrap();
-    {
-        let folder = cabinet.folder_entries().nth(0).unwrap();
-        assert_eq!(folder.compression_type(), ctype);
-        assert!((folder.num_data_blocks() as usize) >= (num_bytes / 0x8000));
-        let file = folder.file_entries().nth(0).unwrap();
-        assert_eq!(file.name(), "binary");
-        assert_eq!(file.uncompressed_size() as usize, original.len());
-    }
+    let cabinet = cab::Cabinet::new(Cursor::new(cab_file)).unwrap();
+    let mut folder_entries = cabinet.folder_entries();
+    let folder = folder_entries.next().unwrap().unwrap();
+    assert_eq!(folder.compression_type(), ctype);
+    assert!((folder.num_data_blocks() as usize) >= (num_bytes / 0x8000));
+
+    let file = folder.file_entries().nth(0).unwrap();
+    assert_eq!(file.name(), "binary");
+    assert_eq!(file.uncompressed_size() as usize, original.len());
+
+    let mut file = folder.file_entries().next().unwrap();
     let mut output = Vec::<u8>::new();
-    let mut file_reader = cabinet.read_file("binary").unwrap();
-    file_reader.read_to_end(&mut output).unwrap();
+    file.read_to_end(&mut output).unwrap();
     assert_eq!(output, original);
 }
 

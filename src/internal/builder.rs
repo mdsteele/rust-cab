@@ -212,7 +212,7 @@ impl<W: Write + Seek> CabinetWriter<W> {
     ) -> io::Result<CabinetWriter<W>> {
         let num_folders = builder.folders.len();
         if num_folders > consts::MAX_NUM_FOLDERS {
-            return invalid_input!(
+            invalid_input!(
                 "Cabinet has too many folders ({}; max is {})",
                 num_folders,
                 consts::MAX_NUM_FOLDERS
@@ -222,7 +222,7 @@ impl<W: Write + Seek> CabinetWriter<W> {
         let num_files: usize =
             builder.folders.iter().map(|folder| folder.files.len()).sum();
         if num_files > consts::MAX_NUM_FILES {
-            return invalid_input!(
+            invalid_input!(
                 "Cabinet has too many files ({}; max is {})",
                 num_files,
                 consts::MAX_NUM_FILES
@@ -231,7 +231,7 @@ impl<W: Write + Seek> CabinetWriter<W> {
 
         let header_reserve_size = builder.reserve_data.len();
         if header_reserve_size > consts::MAX_HEADER_RESERVE_SIZE {
-            return invalid_input!(
+            invalid_input!(
                 "Cabinet header reserve data is too large \
                  ({} bytes; max is {} bytes)",
                 header_reserve_size,
@@ -246,7 +246,7 @@ impl<W: Write + Seek> CabinetWriter<W> {
             .max()
             .unwrap_or(0);
         if folder_reserve_size > consts::MAX_FOLDER_RESERVE_SIZE {
-            return invalid_input!(
+            invalid_input!(
                 "Cabinet folder reserve data is too large \
                  ({} bytes; max is {} bytes)",
                 folder_reserve_size,
@@ -288,10 +288,10 @@ impl<W: Write + Seek> CabinetWriter<W> {
             writer.write_all(&builder.reserve_data)?;
         }
         if (flags & consts::FLAG_PREV_CABINET) != 0 {
-            return invalid_input!("Prev-cabinet feature not yet supported");
+            invalid_input!("Prev-cabinet feature not yet supported");
         }
         if (flags & consts::FLAG_NEXT_CABINET) != 0 {
-            return invalid_input!("Next-cabinet feature not yet supported");
+            invalid_input!("Next-cabinet feature not yet supported");
         }
 
         // Write structs for folders:
@@ -373,7 +373,7 @@ impl<W: Write + Seek> CabinetWriter<W> {
                 // Begin next file:
                 let file = &mut folder.files[self.next_file_index];
                 if self.offset_within_folder > (u32::MAX as u64) {
-                    return invalid_data!(
+                    invalid_data!(
                         "Folder is overfull \
                          (file offset of {} bytes, max is {} bytes)",
                         self.offset_within_folder,
@@ -422,7 +422,7 @@ impl<W: Write + Seek> CabinetWriter<W> {
             InnerCabinetWriter::Raw(ref mut writer) => {
                 let cabinet_file_size = writer.stream_position()?;
                 if cabinet_file_size > (consts::MAX_TOTAL_CAB_SIZE as u64) {
-                    return invalid_data!(
+                    invalid_data!(
                         "Cabinet file is too large \
                          ({} bytes; max is {} bytes)",
                         cabinet_file_size,
@@ -476,7 +476,7 @@ impl<'a, W: Write + Seek> Write for FileWriter<'a, W> {
             return Ok(0);
         }
         if self.file_builder.uncompressed_size == consts::MAX_FILE_SIZE {
-            return invalid_input!(
+            invalid_input!(
                 "File is already at maximum size of {} bytes",
                 consts::MAX_FILE_SIZE
             );
@@ -521,7 +521,7 @@ impl<W: Write + Seek> FolderWriter<W> {
     ) -> io::Result<FolderWriter<W>> {
         let current_offset = writer.stream_position()?;
         if current_offset > (consts::MAX_TOTAL_CAB_SIZE as u64) {
-            return invalid_data!(
+            invalid_data!(
                 "Cabinet file is too large \
                  (already {} bytes; max is {} bytes)",
                 current_offset,
@@ -534,12 +534,10 @@ impl<W: Write + Seek> FolderWriter<W> {
                 FolderCompressor::MsZip(MsZipCompressor::new())
             }
             CompressionType::Quantum(_, _) => {
-                return invalid_data!(
-                    "Quantum compression is not yet supported."
-                );
+                invalid_data!("Quantum compression is not yet supported.");
             }
             CompressionType::Lzx(_) => {
-                return invalid_data!("LZX compression is not yet supported.");
+                invalid_data!("LZX compression is not yet supported.");
             }
         };
         Ok(FolderWriter {

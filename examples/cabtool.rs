@@ -6,7 +6,9 @@ use std::time::UNIX_EPOCH;
 use clap::{Parser, Subcommand};
 use time::{OffsetDateTime, PrimitiveDateTime};
 
-use cab::{Cabinet, CabinetBuilder, CompressionType, FileEntry, FolderEntry};
+use cab::{
+    Cabinet, CabinetBuilder, CompressionType, FileReader, FolderReader,
+};
 
 #[derive(Parser, Debug)]
 #[command(author, about, version)]
@@ -42,21 +44,26 @@ fn main() {
     let cli = Cli::parse();
     match cli.command {
         Command::Cat { path, files } => {
-            let mut cabinet = Cabinet::new(File::open(path).unwrap()).unwrap();
+            let cabinet = Cabinet::new(File::open(path).unwrap()).unwrap();
             for filename in files {
-                let mut file_reader = cabinet.read_file(&filename).unwrap();
-                io::copy(&mut file_reader, &mut io::stdout()).unwrap();
+                while let Some(folder) = cabinet.folder_entries().next() {
+                    let folder = folder.unwrap();
+                    for mut file in folder.file_entries() {
+                        if file.name() == filename {
+                            io::copy(&mut file, &mut io::stdout()).unwrap();
+                        }
+                    }
+                }
             }
         }
         Command::Create { compress, output, files } => {
-            let compress = match compress.as_str() {
+            let ctype = match compress.to_lowercase().as_str() {
                 "none" => CompressionType::None,
                 "mszip" => CompressionType::MsZip,
-                _ => panic!("Invalid compression type: {}", compress),
+                v => panic!("Invalid compression type: {}", v),
             };
-
             let output = match output {
-                Some(out) => out,
+                Some(p) => p,
                 None => {
                     let mut path = PathBuf::from("out.cab");
                     let mut index: i32 = 0;
@@ -67,10 +74,12 @@ fn main() {
                     path
                 }
             };
+
             let mut builder = CabinetBuilder::new();
+
             let mut file_index: usize = 0;
             while file_index < files.len() {
-                let folder = builder.add_folder(compress);
+                let folder = builder.add_folder(ctype);
                 let mut folder_size: u64 = 0;
                 while file_index < files.len() && folder_size < 0x8000 {
                     let filename = files[file_index].as_str();
@@ -102,10 +111,13 @@ fn main() {
         }
         Command::Ls { path, long } => {
             let cabinet = Cabinet::new(File::open(path).unwrap()).unwrap();
-            for (index, folder) in cabinet.folder_entries().enumerate() {
+            let mut index = 0;
+            while let Some(folder) = cabinet.folder_entries().next() {
+                let folder = folder.unwrap();
                 for file in folder.file_entries() {
-                    list_file(index, folder, file, long);
+                    list_file(index, &folder, &file, long);
                 }
+                index += 1;
             }
         }
     }
@@ -113,8 +125,8 @@ fn main() {
 
 fn list_file(
     folder_index: usize,
-    folder: &FolderEntry,
-    file: &FileEntry,
+    folder: &FolderReader,
+    file: &FileReader,
     long: bool,
 ) {
     if !long {

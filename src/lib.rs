@@ -35,18 +35,18 @@
 //! let cab_file = fs::File::open("path/to/cabinet.cab").unwrap();
 //! let mut cabinet = cab::Cabinet::new(cab_file).unwrap();
 //! // List all files in the cabinet, with file sizes and compression types:
-//! for folder in cabinet.folder_entries() {
-//!     for file in folder.file_entries() {
+//! while let Some(folder) = cabinet.folder_entries().next() {
+//!     let folder = folder.unwrap();
+//!     for mut file in folder.file_entries() {
 //!         println!("File {} ({} B) is compressed with {:?}",
 //!                  file.name(),
 //!                  file.uncompressed_size(),
 //!                  folder.compression_type());
+//!
+//!         let mut writer = fs::File::create(format!("out/{}", file.name())).unwrap();
+//!         io::copy(&mut file, &mut writer).unwrap();
 //!     }
 //! }
-//! // Decompress a particular file in the cabinet and save it to disk:
-//! let mut reader = cabinet.read_file("images/example.png").unwrap();
-//! let mut writer = fs::File::create("out/example.png").unwrap();
-//! io::copy(&mut reader, &mut writer).unwrap();
 //! ```
 //!
 //! Creating a new cabinet file is a little more involved.  Because of how the

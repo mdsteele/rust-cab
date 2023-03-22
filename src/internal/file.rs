@@ -11,12 +11,13 @@ use crate::internal::folder::FolderReader;
 
 /// An iterator over the file entries in a folder.
 #[derive(Clone)]
-pub struct FileEntries<'a, 'r: 'a> {
-    pub(crate) reader: &'r FolderReader<'a>,
+pub struct FileEntries<'a> {
+    pub(crate) reader: &'a FolderReader<'a>,
     pub(crate) iter: slice::Iter<'a, FileEntry>,
 }
 
 /// Metadata about one file stored in a cabinet.
+#[derive(Clone)]
 pub struct FileEntry {
     name: String,
     pub(crate) folder_index: u16,
@@ -27,17 +28,18 @@ pub struct FileEntry {
 }
 
 /// A reader for reading decompressed data from a cabinet file.
-pub struct FileReader<'a, 'r> {
-    reader: &'r FolderReader<'a>,
+#[derive(Clone, Copy)]
+pub struct FileReader<'a> {
+    reader: &'a FolderReader<'a>,
     entry: &'a FileEntry,
     offset: u64,
     size: u64,
 }
 
-impl<'a, 'r: 'a> Iterator for FileEntries<'a, 'r> {
-    type Item = FileReader<'a, 'r>;
+impl<'a> Iterator for FileEntries<'a> {
+    type Item = FileReader<'a>;
 
-    fn next(&mut self) -> Option<FileReader<'a, 'r>> {
+    fn next(&mut self) -> Option<FileReader<'a>> {
         let entry = self.iter.next()?;
         Some(FileReader {
             reader: self.reader,
@@ -52,9 +54,9 @@ impl<'a, 'r: 'a> Iterator for FileEntries<'a, 'r> {
     }
 }
 
-impl<'a, 'r> ExactSizeIterator for FileEntries<'a, 'r> {}
+impl<'a> ExactSizeIterator for FileEntries<'a> {}
 
-impl<'a, 'r> FileReader<'a, 'r> {
+impl<'a> FileReader<'a> {
     /// Returns the name of file.
     pub fn name(&self) -> &str {
         &self.entry.name
@@ -113,7 +115,7 @@ impl<'a, 'r> FileReader<'a, 'r> {
     }
 }
 
-impl<'a, 'r: 'a> Read for FileReader<'a, 'r> {
+impl<'a> Read for FileReader<'a> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         let bytes_remaining = self.size - self.offset;
         let max_bytes = bytes_remaining.min(buf.len() as u64) as usize;
@@ -121,7 +123,7 @@ impl<'a, 'r: 'a> Read for FileReader<'a, 'r> {
             return Ok(0);
         }
 
-        let reader = &mut self.reader;
+        let reader = &mut &self.reader.inner;
         let bytes_read = reader.read(&mut buf[0..max_bytes])?;
         self.offset += bytes_read as u64;
         Ok(bytes_read)

@@ -32,14 +32,12 @@ impl<R: Read + Seek> Cabinet<R> {
     pub fn new(mut reader: R) -> io::Result<Cabinet<R>> {
         let signature = reader.read_u32::<LittleEndian>()?;
         if signature != consts::FILE_SIGNATURE {
-            return invalid_data!(
-                "Not a cabinet file (invalid file signature)"
-            );
+            invalid_data!("Not a cabinet file (invalid file signature)");
         }
         let _reserved1 = reader.read_u32::<LittleEndian>()?;
         let total_size = reader.read_u32::<LittleEndian>()?;
         if total_size > consts::MAX_TOTAL_CAB_SIZE {
-            return invalid_data!(
+            invalid_data!(
                 "Cabinet total size field is too large \
                  ({} bytes; max is {} bytes)",
                 total_size,
@@ -55,7 +53,7 @@ impl<R: Read + Seek> Cabinet<R> {
             || major_version == consts::VERSION_MAJOR
                 && minor_version > consts::VERSION_MINOR
         {
-            return invalid_data!(
+            invalid_data!(
                 "Version {}.{} cabinet files are not supported",
                 major_version,
                 minor_version
@@ -105,7 +103,7 @@ impl<R: Read + Seek> Cabinet<R> {
             let entry = parse_file_entry(&mut reader)?;
             let folder_index = entry.folder_index as usize;
             if folder_index >= folders.len() {
-                return invalid_data!("File entry folder index out of bounds");
+                invalid_data!("File entry folder index out of bounds");
             }
             if folder_index != current_folder_idx {
                 folders[folder_index].file_idx_start = idx as usize;
@@ -178,7 +176,7 @@ pub(crate) fn read_null_terminated_string<R: Read>(
         if byte == 0 {
             break;
         } else if bytes.len() == consts::MAX_STRING_SIZE {
-            return invalid_data!(
+            invalid_data!(
                 "String longer than maximum of {} bytes",
                 consts::MAX_STRING_SIZE
             );
@@ -209,8 +207,6 @@ mod tests {
         assert_eq!(cabinet.reserve_data(), &[]);
 
         let mut folder_entries = cabinet.folder_entries();
-        assert_eq!(folder_entries.len(), 1);
-
         let folder_entry = folder_entries.next().unwrap().unwrap();
         let mut file_entries = folder_entry.file_entries();
         assert_eq!(file_entries.len(), 1);
@@ -243,27 +239,28 @@ mod tests {
             \0\0\0\0\x1d\0\x1d\0Hello, world!\nSee you later!\n";
         assert_eq!(binary.len(), 0x80);
         let cabinet = Cabinet::new(Cursor::new(binary)).unwrap();
-        let mut folder_entries = cabinet.folder_entries();
-        assert_eq!(folder_entries.len(), 1);
 
-        let folder_entry = folder_entries.next().unwrap().unwrap();
-        let mut file_entries = folder_entry.file_entries();
-        assert_eq!(file_entries.len(), 2);
-        {
-            let mut file = file_entries.next().unwrap();
-            assert_eq!(file.name(), "hi.txt");
-            assert!(!file.is_name_utf());
-            let mut data = Vec::new();
-            file.read_to_end(&mut data).unwrap();
-            assert_eq!(data, b"Hello, world!\n");
-        }
-        {
-            let mut file = file_entries.next().unwrap();
-            assert_eq!(file.name(), "bye.txt");
-            assert!(!file.is_name_utf());
-            let mut data = Vec::new();
-            file.read_to_end(&mut data).unwrap();
-            assert_eq!(data, b"See you later!\n");
+        for _ in 0..2 {
+            let mut folder_entries = cabinet.folder_entries();
+            let folder_entry = folder_entries.next().unwrap().unwrap();
+            let mut file_entries = folder_entry.file_entries();
+            assert_eq!(file_entries.len(), 2);
+            {
+                let mut file = file_entries.next().unwrap();
+                assert_eq!(file.name(), "hi.txt");
+                assert!(!file.is_name_utf());
+                let mut data = Vec::new();
+                file.read_to_end(&mut data).unwrap();
+                assert_eq!(data, b"Hello, world!\n");
+            }
+            {
+                let mut file = file_entries.next().unwrap();
+                assert_eq!(file.name(), "bye.txt");
+                assert!(!file.is_name_utf());
+                let mut data = Vec::new();
+                file.read_to_end(&mut data).unwrap();
+                assert_eq!(data, b"See you later!\n");
+            }
         }
     }
 
@@ -278,8 +275,6 @@ mod tests {
         assert_eq!(binary.len(), 0x61);
         let cabinet = Cabinet::new(Cursor::new(binary)).unwrap();
         let mut folder_entries = cabinet.folder_entries();
-        assert_eq!(folder_entries.len(), 1);
-
         let folder_entry = folder_entries.next().unwrap().unwrap();
         assert_eq!(folder_entry.num_data_blocks(), 2);
         let mut file_entries = folder_entry.file_entries();
@@ -304,10 +299,8 @@ mod tests {
         assert_eq!(cabinet.cabinet_set_id(), 0x1234);
         assert_eq!(cabinet.cabinet_set_index(), 0);
         assert_eq!(cabinet.reserve_data(), &[]);
-        assert_eq!(cabinet.folder_entries().len(), 1);
 
         let mut folder_entries = cabinet.folder_entries();
-        assert_eq!(folder_entries.len(), 1);
 
         let folder_entry = folder_entries.next().unwrap().unwrap();
         let mut file_entries = folder_entry.file_entries();
@@ -333,7 +326,6 @@ mod tests {
         let cabinet = Cabinet::new(Cursor::new(binary)).unwrap();
 
         let mut folder_entries = cabinet.folder_entries();
-        assert_eq!(folder_entries.len(), 1);
 
         let folder_entry = folder_entries.next().unwrap().unwrap();
         let mut file_entries = folder_entry.file_entries();
@@ -374,7 +366,6 @@ mod tests {
         let cabinet = Cabinet::new(Cursor::new(binary)).unwrap();
 
         let mut folder_entries = cabinet.folder_entries();
-        assert_eq!(folder_entries.len(), 1);
 
         let folder_entry = folder_entries.next().unwrap().unwrap();
         let mut file_entries = folder_entry.file_entries();
@@ -407,7 +398,6 @@ mod tests {
         assert_eq!(binary.len(), 0x55);
         let cabinet = Cabinet::new(Cursor::new(binary)).unwrap();
         let mut folder_entries = cabinet.folder_entries();
-        assert_eq!(folder_entries.len(), 1);
 
         let folder_entry = folder_entries.next().unwrap().unwrap();
         let mut file_entries = folder_entry.file_entries();

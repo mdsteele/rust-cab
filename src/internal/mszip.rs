@@ -36,7 +36,7 @@ impl MsZipCompressor {
         match self.compressor.compress_vec(data, &mut out, flush) {
             Ok(_) => {}
             Err(error) => {
-                return invalid_data!("MSZIP compression failed: {}", error)
+                invalid_data!("MSZIP compression failed: {}", error)
             }
         }
         if !is_last_block {
@@ -79,7 +79,7 @@ impl MsZipDecompressor {
         if data.len() < MSZIP_SIGNATURE_LEN
             || ((data[0] as u16) | ((data[1] as u16) << 8)) != MSZIP_SIGNATURE
         {
-            return invalid_data!(
+            invalid_data!(
                 "MSZIP decompression failed: Invalid block signature"
             );
         }
@@ -107,11 +107,11 @@ impl MsZipDecompressor {
         match self.decompressor.decompress_vec(data, &mut out, flush) {
             Ok(_) => {}
             Err(error) => {
-                return invalid_data!("MSZIP decompression failed: {}", error);
+                invalid_data!("MSZIP decompression failed: {}", error);
             }
         }
         if out.len() != uncompressed_size {
-            return invalid_data!(
+            invalid_data!(
                 "MSZIP decompression failed: Incorrect uncompressed size \
                  (expected {}, was actually {})",
                 uncompressed_size,
