@@ -79,7 +79,7 @@ impl MsZipDecompressor {
         uncompressed_size: u16,
     ) -> io::Result<Vec<u8>> {
         // Check signature:
-        if data.len() < (MSZIP_SIGNATURE_LEN as usize)
+        if data.len() < MSZIP_SIGNATURE_LEN
             || ((data[0] as u16) | ((data[1] as u16) << 8)) != MSZIP_SIGNATURE
         {
             invalid_data!(

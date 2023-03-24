@@ -418,7 +418,7 @@ impl<W: Write + Seek> CabinetWriter<W> {
         while (self.next_file()?).is_some() {}
         match self.writer {
             InnerCabinetWriter::Raw(ref mut writer) => {
-                let cabinet_file_size = writer.seek(SeekFrom::Current(0))?;
+                let cabinet_file_size = writer.stream_position()?;
                 if cabinet_file_size > (consts::MAX_TOTAL_CAB_SIZE as u64) {
                     invalid_data!(
                         "Cabinet file is too large \
@@ -517,7 +517,7 @@ impl<W: Write + Seek> FolderWriter<W> {
         compression_type: CompressionType,
         folder_entry_offset: u32,
     ) -> io::Result<FolderWriter<W>> {
-        let current_offset = writer.seek(SeekFrom::Current(0))?;
+        let current_offset = writer.stream_position()?;
         if current_offset > (consts::MAX_TOTAL_CAB_SIZE as u64) {
             invalid_data!(
                 "Cabinet file is too large \
@@ -554,7 +554,7 @@ impl<W: Write + Seek> FolderWriter<W> {
             self.write_data_block(true)?;
         }
         let mut writer = self.writer;
-        let offset = writer.seek(SeekFrom::Current(0))?;
+        let offset = writer.stream_position()?;
         writer.seek(SeekFrom::Start(self.folder_entry_offset as u64))?;
         writer.write_u32::<LittleEndian>(self.first_data_block_offset)?;
         writer.write_u16::<LittleEndian>(self.num_data_blocks)?;
