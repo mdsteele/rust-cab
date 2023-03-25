@@ -104,7 +104,7 @@ fn main() {
             let cabinet = Cabinet::new(File::open(path).unwrap()).unwrap();
             for (index, folder) in cabinet.folder_entries().enumerate() {
                 for file in folder.file_entries() {
-                    list_file(index, folder, file, long);
+                    list_file(index, &folder, file, long);
                 }
             }
         }

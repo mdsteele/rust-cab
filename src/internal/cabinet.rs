@@ -1,15 +1,15 @@
+use std::io::{self, Read, Seek, SeekFrom};
+use std::slice;
+
+use byteorder::{LittleEndian, ReadBytesExt};
+use lzxd::Lzxd;
+use time::PrimitiveDateTime;
+
 use crate::internal::checksum::Checksum;
 use crate::internal::consts;
 use crate::internal::ctype::CompressionType;
 use crate::internal::datetime::datetime_from_bits;
 use crate::internal::mszip::MsZipDecompressor;
-use byteorder::{LittleEndian, ReadBytesExt};
-use lzxd::Lzxd;
-use std::io::{self, Read, Seek, SeekFrom};
-use std::slice;
-use time::PrimitiveDateTime;
-
-// ========================================================================= //
 
 /// A structure for reading a cabinet file.
 pub struct Cabinet<R> {
@@ -18,7 +18,8 @@ pub struct Cabinet<R> {
     cabinet_set_index: u16,
     data_reserve_size: u8,
     reserve_data: Vec<u8>,
-    folders: Vec<FolderEntry>,
+    folders: Vec<_FolderEntry>,
+    files: Vec<FileEntry>,
 }
 
 impl<R: Read + Seek> Cabinet<R> {
@@ -84,49 +85,27 @@ impl<R: Read + Seek> Cabinet<R> {
         } else {
             None
         };
-        let mut folders = Vec::<FolderEntry>::with_capacity(num_folders);
+        let mut folders = Vec::<_FolderEntry>::with_capacity(num_folders);
         for _ in 0..num_folders {
-            let first_data_offset = reader.read_u32::<LittleEndian>()?;
-            let num_data_blocks = reader.read_u16::<LittleEndian>()?;
-            let compression_bits = reader.read_u16::<LittleEndian>()?;
-            let compression_type =
-                CompressionType::from_bitfield(compression_bits)?;
-            let mut folder_reserve_data =
-                vec![0u8; folder_reserve_size as usize];
-            if folder_reserve_size > 0 {
-                reader.read_exact(&mut folder_reserve_data)?;
-            }
-            let entry = FolderEntry {
-                first_data_block_offset: first_data_offset,
-                num_data_blocks,
-                compression_type,
-                reserve_data: folder_reserve_data,
-                files: Vec::new(),
-            };
+            let entry =
+                parse_folder_entry(&mut reader, folder_reserve_size as usize)?;
             folders.push(entry);
         }
         reader.seek(SeekFrom::Start(first_file_offset as u64))?;
-        for _ in 0..num_files {
-            let uncompressed_size = reader.read_u32::<LittleEndian>()?;
-            let uncompressed_offset = reader.read_u32::<LittleEndian>()?;
-            let folder_index = reader.read_u16::<LittleEndian>()? as usize;
+        let mut files = Vec::<FileEntry>::with_capacity(num_files as usize);
+        let mut current_folder_idx = 0;
+        for idx in 0..num_files {
+            let entry = parse_file_entry(&mut reader)?;
+            let folder_index = entry.folder_index as usize;
             if folder_index >= folders.len() {
                 invalid_data!("File entry folder index out of bounds");
             }
-            let date = reader.read_u16::<LittleEndian>()?;
-            let time = reader.read_u16::<LittleEndian>()?;
-            let datetime = datetime_from_bits(date, time);
-            let attributes = reader.read_u16::<LittleEndian>()?;
-            let is_utf8 = (attributes & consts::ATTR_NAME_IS_UTF) != 0;
-            let name = read_null_terminated_string(&mut reader, is_utf8)?;
-            let entry = FileEntry {
-                name,
-                datetime,
-                uncompressed_size,
-                uncompressed_offset,
-                attributes,
-            };
-            folders[folder_index].files.push(entry);
+            if folder_index != current_folder_idx {
+                folders[folder_index].file_idx_start = idx as usize;
+                current_folder_idx = folder_index;
+            }
+            folders[current_folder_idx].files_count += 1;
+            files.push(entry);
         }
         Ok(Cabinet {
             reader,
@@ -135,6 +114,7 @@ impl<R: Read + Seek> Cabinet<R> {
             data_reserve_size,
             reserve_data: header_reserve_data,
             folders,
+            files,
         })
     }
 
@@ -157,44 +137,29 @@ impl<R: Read + Seek> Cabinet<R> {
 
     /// Returns an iterator over the folder entries in this cabinet.
     pub fn folder_entries(&self) -> FolderEntries {
-        FolderEntries { iter: self.folders.iter() }
+        FolderEntries { iter: self.folders.iter(), files: &self.files }
     }
 
     /// Returns the entry for the file with the given name, if any..
     pub fn get_file_entry(&self, name: &str) -> Option<&FileEntry> {
-        for folder in self.folder_entries() {
-            for file in folder.file_entries() {
-                if file.name() == name {
-                    return Some(file);
-                }
-            }
-        }
-        None
+        self.files.iter().find(|&file| file.name() == name)
     }
 
     /// Returns a reader over the decompressed data for the file in the cabinet
     /// with the given name.
     pub fn read_file(&mut self, name: &str) -> io::Result<FileReader<R>> {
-        if let Some((folder_index, offset, size)) = self.find_file(name) {
-            let mut folder_reader = self.read_folder(folder_index)?;
-            folder_reader.seek(SeekFrom::Start(offset))?;
-            Ok(FileReader { reader: folder_reader, offset: 0, size })
-        } else {
-            not_found!("No such file in cabinet: {:?}", name);
-        }
-    }
-
-    fn find_file(&mut self, name: &str) -> Option<(usize, u64, u64)> {
-        for (folder_index, folder_entry) in self.folder_entries().enumerate() {
-            for file_entry in folder_entry.file_entries() {
-                if file_entry.name() == name {
-                    let offset = file_entry.uncompressed_offset as u64;
-                    let size = file_entry.uncompressed_size() as u64;
-                    return Some((folder_index, offset, size));
-                }
+        match self.get_file_entry(name) {
+            Some(file_entry) => {
+                let folder_index = file_entry.folder_index as usize;
+                let offset = file_entry.uncompressed_offset as u64;
+                let size = file_entry.uncompressed_size() as u64;
+                let mut folder_reader = self.read_folder(folder_index)?;
+                folder_reader.seek(SeekFrom::Start(offset))?;
+                Ok(FileReader { reader: folder_reader, offset: 0, size })
             }
+
+            None => not_found!("No such file in cabinet: {:?}", name),
         }
-        None
     }
 
     /// Returns a reader over the decompressed data in the specified folder.
@@ -214,19 +179,21 @@ impl<R: Read + Seek> Cabinet<R> {
     }
 }
 
-// ========================================================================= //
-
 /// An iterator over the folder entries in a cabinet.
 #[derive(Clone)]
 pub struct FolderEntries<'a> {
-    iter: slice::Iter<'a, FolderEntry>,
+    iter: slice::Iter<'a, _FolderEntry>,
+    files: &'a [FileEntry],
 }
 
 impl<'a> Iterator for FolderEntries<'a> {
-    type Item = &'a FolderEntry;
+    type Item = FolderEntry<'a>;
 
-    fn next(&mut self) -> Option<&'a FolderEntry> {
-        self.iter.next()
+    fn next(&mut self) -> Option<FolderEntry<'a>> {
+        let entry = self.iter.next()?;
+        let files = &self.files
+            [entry.file_idx_start..entry.file_idx_start + entry.files_count];
+        Some(FolderEntry { entry, files })
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
@@ -236,31 +203,35 @@ impl<'a> Iterator for FolderEntries<'a> {
 
 impl<'a> ExactSizeIterator for FolderEntries<'a> {}
 
-// ========================================================================= //
-
-/// Metadata about one folder in a cabinet.
-pub struct FolderEntry {
+struct _FolderEntry {
     first_data_block_offset: u32,
     num_data_blocks: u16,
     compression_type: CompressionType,
     reserve_data: Vec<u8>,
-    files: Vec<FileEntry>,
+    file_idx_start: usize,
+    files_count: usize,
 }
 
-impl FolderEntry {
+/// Metadata about one folder in a cabinet.
+pub struct FolderEntry<'a> {
+    entry: &'a _FolderEntry,
+    files: &'a [FileEntry],
+}
+
+impl<'a> FolderEntry<'a> {
     /// Returns the scheme used to compress this folder's data.
     pub fn compression_type(&self) -> CompressionType {
-        self.compression_type
+        self.entry.compression_type
     }
 
     /// Returns the number of data blocks used to store this folder's data.
     pub fn num_data_blocks(&self) -> u16 {
-        self.num_data_blocks
+        self.entry.num_data_blocks
     }
 
     /// Returns the application-defined reserve data for this folder.
     pub fn reserve_data(&self) -> &[u8] {
-        &self.reserve_data
+        &self.entry.reserve_data
     }
 
     /// Returns an iterator over the file entries in this folder.
@@ -297,6 +268,7 @@ impl<'a> ExactSizeIterator for FileEntries<'a> {}
 pub struct FileEntry {
     name: String,
     datetime: Option<PrimitiveDateTime>,
+    folder_index: u16,
     uncompressed_size: u32,
     uncompressed_offset: u32,
     attributes: u16,
@@ -424,10 +396,10 @@ enum FolderDecompressor {
 impl<'a, R: 'a + Read + Seek> FolderReader<'a, R> {
     fn new(
         reader: &'a mut R,
-        entry: &FolderEntry,
+        entry: &_FolderEntry,
         data_reserve_size: u8,
     ) -> io::Result<FolderReader<'a, R>> {
-        let num_data_blocks = entry.num_data_blocks() as usize;
+        let num_data_blocks = entry.num_data_blocks as usize;
         let mut data_blocks =
             Vec::<(u64, u64)>::with_capacity(num_data_blocks);
         let mut cumulative_size: u64 = 0;
@@ -440,7 +412,7 @@ impl<'a, R: 'a + Read + Seek> FolderReader<'a, R> {
             data_blocks.push((cumulative_size, offset));
             offset += 8 + data_reserve_size as u64 + compressed_size;
         }
-        let decompressor = match entry.compression_type() {
+        let decompressor = match entry.compression_type {
             CompressionType::None => FolderDecompressor::Uncompressed,
             CompressionType::MsZip => {
                 FolderDecompressor::MsZip(Box::new(MsZipDecompressor::new()))
@@ -543,9 +515,7 @@ impl<'a, R: 'a + Read + Seek> FolderReader<'a, R> {
                 .decompress_block(&compressed_data, uncompressed_size)?,
             FolderDecompressor::Lzx(ref mut decompressor) => decompressor
                 .decompress_next(&compressed_data)
-                .map_err(|e| {
-                    std::io::Error::new(std::io::ErrorKind::Other, e)
-                })?
+                .map_err(|e| io::Error::new(std::io::ErrorKind::Other, e))?
                 .to_vec(),
         };
         Ok(())
@@ -613,8 +583,6 @@ impl<'a, R: Read + Seek> Seek for FolderReader<'a, R> {
     }
 }
 
-// ========================================================================= //
-
 fn read_null_terminated_string<R: Read>(
     reader: &mut R,
     _is_utf8: bool,
@@ -636,12 +604,55 @@ fn read_null_terminated_string<R: Read>(
     Ok(String::from_utf8_lossy(&bytes).to_string())
 }
 
-// ========================================================================= //
+fn parse_file_entry<R: Read>(mut reader: R) -> io::Result<FileEntry> {
+    let uncompressed_size = reader.read_u32::<LittleEndian>()?;
+    let uncompressed_offset = reader.read_u32::<LittleEndian>()?;
+    let folder_index = reader.read_u16::<LittleEndian>()?;
+    let date = reader.read_u16::<LittleEndian>()?;
+    let time = reader.read_u16::<LittleEndian>()?;
+    let datetime = datetime_from_bits(date, time);
+    let attributes = reader.read_u16::<LittleEndian>()?;
+    let is_utf8 = (attributes & consts::ATTR_NAME_IS_UTF) != 0;
+    let name = read_null_terminated_string(&mut reader, is_utf8)?;
+    let entry = FileEntry {
+        name,
+        folder_index,
+        datetime,
+        uncompressed_size,
+        uncompressed_offset,
+        attributes,
+    };
+    Ok(entry)
+}
+
+fn parse_folder_entry<R: Read>(
+    mut reader: R,
+    reserve_size: usize,
+) -> io::Result<_FolderEntry> {
+    let first_data_offset = reader.read_u32::<LittleEndian>()?;
+    let num_data_blocks = reader.read_u16::<LittleEndian>()?;
+    let compression_bits = reader.read_u16::<LittleEndian>()?;
+    let compression_type = CompressionType::from_bitfield(compression_bits)?;
+    let mut folder_reserve_data = vec![0u8; reserve_size];
+    if reserve_size > 0 {
+        reader.read_exact(&mut folder_reserve_data)?;
+    }
+    let entry = _FolderEntry {
+        first_data_block_offset: first_data_offset,
+        num_data_blocks,
+        compression_type,
+        reserve_data: folder_reserve_data,
+        file_idx_start: 0,
+        files_count: 0,
+    };
+    Ok(entry)
+}
 
 #[cfg(test)]
 mod tests {
-    use super::Cabinet;
     use std::io::{Cursor, Read};
+
+    use super::Cabinet;
 
     #[test]
     fn read_uncompressed_cabinet_with_one_file() {
