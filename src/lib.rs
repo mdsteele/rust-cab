@@ -91,10 +91,6 @@
 //! ```
 
 #![warn(missing_docs)]
-
-extern crate byteorder;
-extern crate flate2;
-
 mod internal;
 
 pub use crate::internal::builder::{
@@ -104,5 +100,3 @@ pub use crate::internal::cabinet::{
     Cabinet, FileEntries, FileEntry, FileReader, FolderEntries, FolderEntry,
 };
 pub use crate::internal::ctype::CompressionType;
-
-// ========================================================================= //
