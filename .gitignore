@@ -1,3 +1,4 @@
+.idea
 *.rs.bk
 *~
 /Cargo.lock
