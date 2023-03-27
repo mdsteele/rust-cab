@@ -2,8 +2,6 @@
 use std::convert::TryInto;
 use time::PrimitiveDateTime;
 
-// ========================================================================= //
-
 pub fn datetime_from_bits(date: u16, time: u16) -> Option<PrimitiveDateTime> {
     let year = (date >> 9) as i32 + 1980;
     let month = (((date >> 5) & 0xf) as u8).try_into().ok()?;
@@ -41,8 +39,6 @@ pub fn datetime_to_bits(mut datetime: PrimitiveDateTime) -> (u16, u16) {
     let time = (hour << 11) | (minute << 5) | (second / 2);
     (date, time)
 }
-
-// ========================================================================= //
 
 #[cfg(test)]
 mod tests {
@@ -88,5 +84,3 @@ mod tests {
         assert_eq!(bits, (0x4064, 0x28e0));
     }
 }
-
-// ========================================================================= //

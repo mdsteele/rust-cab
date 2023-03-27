@@ -3,14 +3,10 @@ use flate2;
 use flate2::Compression;
 use std::io;
 
-// ========================================================================= //
-
 const MSZIP_SIGNATURE: u16 = 0x4B43; // "CK" stored little-endian
 const MSZIP_SIGNATURE_LEN: usize = 2;
 const MSZIP_BLOCK_TERMINATOR: u16 = 0x0003;
 const DEFLATE_MAX_DICT_LEN: usize = 0x8000;
-
-// ========================================================================= //
 
 pub struct MsZipCompressor {
     compressor: flate2::Compress,
@@ -57,8 +53,6 @@ impl MsZipCompressor {
         Ok(out)
     }
 }
-
-// ========================================================================= //
 
 pub struct MsZipDecompressor {
     decompressor: flate2::Decompress,
@@ -136,8 +130,6 @@ impl MsZipDecompressor {
         Ok(out)
     }
 }
-
-// ========================================================================= //
 
 #[cfg(test)]
 mod tests {
@@ -428,5 +420,3 @@ mod tests {
         &random_data(DEFLATE_MAX_DICT_LEN * 10)
     );
 }
-
-// ========================================================================= //

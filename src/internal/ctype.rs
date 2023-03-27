@@ -1,7 +1,5 @@
 use std::io;
 
-// ========================================================================= //
-
 const CTYPE_NONE: u16 = 0;
 const CTYPE_MSZIP: u16 = 1;
 const CTYPE_QUANTUM: u16 = 2;
@@ -14,8 +12,6 @@ const QUANTUM_MEMORY_MAX: u16 = 21;
 
 const LZX_WINDOW_MIN: u16 = 15;
 const LZX_WINDOW_MAX: u16 = 21;
-
-// ========================================================================= //
 
 /// A scheme for compressing data within the cabinet.
 #[derive(Clone, Copy, Debug, Hash, Eq, PartialEq)]
@@ -80,8 +76,6 @@ impl CompressionType {
     }
 }
 
-// ========================================================================= //
-
 #[cfg(test)]
 mod tests {
     use super::CompressionType;
@@ -114,5 +108,3 @@ mod tests {
         );
     }
 }
-
-// ========================================================================= //
