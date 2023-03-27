@@ -2,12 +2,12 @@ use std::io::{self, Read, Seek, SeekFrom};
 
 use byteorder::{LittleEndian, ReadBytesExt};
 
-use crate::internal::consts;
-use crate::internal::file::{parse_file_entry, FileEntry, FileReader};
-use crate::internal::folder::{
+use crate::consts;
+use crate::file::{parse_file_entry, FileEntry, FileReader};
+use crate::folder::{
     _FolderEntry, parse_folder_entry, FolderEntries, FolderReader,
 };
-use crate::internal::string::read_null_terminated_string;
+use crate::string::read_null_terminated_string;
 
 /// A structure for reading a cabinet file.
 pub struct Cabinet<R> {

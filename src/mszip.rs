@@ -1,7 +1,7 @@
-use byteorder::{LittleEndian, WriteBytesExt};
-use flate2;
-use flate2::Compression;
 use std::io;
+
+use byteorder::{LittleEndian, WriteBytesExt};
+use flate2::Compression;
 
 const MSZIP_SIGNATURE: u16 = 0x4B43; // "CK" stored little-endian
 const MSZIP_SIGNATURE_LEN: usize = 2;
@@ -176,12 +176,14 @@ mod tests {
     mod sys {
         #![allow(non_camel_case_types)]
 
-        use super::super::DEFLATE_MAX_DICT_LEN;
         use std::mem;
         use std::ptr;
+
         use winapi::shared::basetsd::{PSIZE_T, SIZE_T};
         use winapi::shared::minwindef::{BOOL, DWORD, FALSE, LPVOID, TRUE};
         use winapi::um::winnt::{HANDLE, PVOID};
+
+        use super::super::DEFLATE_MAX_DICT_LEN;
 
         const COMPRESS_ALGORITHM_MSZIP: DWORD = 2;
         const COMPRESS_RAW: DWORD = 1 << 29;

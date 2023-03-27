@@ -4,10 +4,10 @@ use std::slice;
 use byteorder::{LittleEndian, ReadBytesExt};
 use lzxd::Lzxd;
 
-use crate::internal::checksum::Checksum;
-use crate::internal::ctype::CompressionType;
-use crate::internal::file::{FileEntries, FileEntry};
-use crate::internal::mszip::MsZipDecompressor;
+use crate::checksum::Checksum;
+use crate::ctype::CompressionType;
+use crate::file::{FileEntries, FileEntry};
+use crate::mszip::MsZipDecompressor;
 
 /// An iterator over the folder entries in a cabinet.
 #[derive(Clone)]

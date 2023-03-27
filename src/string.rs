@@ -2,7 +2,7 @@ use std::io::{self, Read};
 
 use byteorder::ReadBytesExt;
 
-use crate::internal::consts;
+use crate::consts;
 
 pub(crate) fn read_null_terminated_string<R: Read>(
     reader: &mut R,

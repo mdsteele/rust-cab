@@ -4,10 +4,10 @@ use std::slice;
 use byteorder::{LittleEndian, ReadBytesExt};
 use time::PrimitiveDateTime;
 
-use crate::internal::consts;
-use crate::internal::datetime::datetime_from_bits;
-use crate::internal::folder::FolderReader;
-use crate::internal::string::read_null_terminated_string;
+use crate::consts;
+use crate::datetime::datetime_from_bits;
+use crate::folder::FolderReader;
+use crate::string::read_null_terminated_string;
 
 /// An iterator over the file entries in a folder.
 #[derive(Clone)]

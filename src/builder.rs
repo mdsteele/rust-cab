@@ -1,8 +1,8 @@
-use crate::internal::checksum::Checksum;
-use crate::internal::consts;
-use crate::internal::ctype::CompressionType;
-use crate::internal::datetime::datetime_to_bits;
-use crate::internal::mszip::MsZipCompressor;
+use crate::checksum::Checksum;
+use crate::consts;
+use crate::ctype::CompressionType;
+use crate::datetime::datetime_to_bits;
+use crate::mszip::MsZipCompressor;
 use byteorder::{LittleEndian, WriteBytesExt};
 use std::io::{self, Seek, SeekFrom, Write};
 use std::mem;
@@ -610,7 +610,7 @@ impl<W: Write + Seek> Write for FolderWriter<W> {
 #[cfg(test)]
 mod tests {
     use super::CabinetBuilder;
-    use crate::internal::ctype::CompressionType;
+    use crate::ctype::CompressionType;
     use std::io::{Cursor, Write};
     use time::macros::datetime;
 
