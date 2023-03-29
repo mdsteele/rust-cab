@@ -91,12 +91,25 @@
 //! ```
 
 #![warn(missing_docs)]
-mod internal;
 
-pub use crate::internal::builder::{
+pub use crate::builder::{
     CabinetBuilder, CabinetWriter, FileBuilder, FileWriter, FolderBuilder,
 };
-pub use crate::internal::cabinet::{
-    Cabinet, FileEntries, FileEntry, FileReader, FolderEntries, FolderEntry,
-};
-pub use crate::internal::ctype::CompressionType;
+pub use crate::cabinet::Cabinet;
+pub use crate::ctype::CompressionType;
+pub use crate::file::{FileEntries, FileEntry, FileReader};
+pub use crate::folder::{FolderEntries, FolderEntry};
+
+#[macro_use]
+mod macros;
+
+mod builder;
+mod cabinet;
+mod checksum;
+mod consts;
+mod ctype;
+mod datetime;
+mod file;
+mod folder;
+mod mszip;
+mod string;

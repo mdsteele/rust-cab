@@ -1,18 +1,14 @@
-use crate::internal::checksum::Checksum;
-use crate::internal::consts;
-use crate::internal::ctype::CompressionType;
-use crate::internal::datetime::datetime_to_bits;
-use crate::internal::mszip::MsZipCompressor;
+use crate::checksum::Checksum;
+use crate::consts;
+use crate::ctype::CompressionType;
+use crate::datetime::datetime_to_bits;
+use crate::mszip::MsZipCompressor;
 use byteorder::{LittleEndian, WriteBytesExt};
 use std::io::{self, Seek, SeekFrom, Write};
 use std::mem;
 use time::PrimitiveDateTime;
 
-// ========================================================================= //
-
 const MAX_UNCOMPRESSED_BLOCK_SIZE: usize = 0x8000;
-
-// ========================================================================= //
 
 /// A structure for building a file within a new cabinet.
 pub struct FileBuilder {
@@ -95,8 +91,6 @@ impl FileBuilder {
     }
 }
 
-// ========================================================================= //
-
 /// A structure for building a folder within a new cabinet.
 pub struct FolderBuilder {
     compression_type: CompressionType,
@@ -128,8 +122,6 @@ impl FolderBuilder {
         self.reserve_data = data;
     }
 }
-
-// ========================================================================= //
 
 /// A structure for building a new cabinet.
 pub struct CabinetBuilder {
@@ -175,8 +167,6 @@ impl Default for CabinetBuilder {
         CabinetBuilder::new()
     }
 }
-
-// ========================================================================= //
 
 /// A structure for writing file data into a new cabinet file.
 pub struct CabinetWriter<W: Write + Seek> {
@@ -446,8 +436,6 @@ impl<W: Write + Seek> Drop for CabinetWriter<W> {
     }
 }
 
-// ========================================================================= //
-
 /// Allows writing data for a single file within a new cabinet.
 pub struct FileWriter<'a, W: 'a + Write + Seek> {
     folder_writer: &'a mut FolderWriter<W>,
@@ -491,8 +479,6 @@ impl<'a, W: Write + Seek> Write for FileWriter<'a, W> {
         self.folder_writer.flush()
     }
 }
-
-// ========================================================================= //
 
 /// A writer for writer data into a cabinet folder.
 struct FolderWriter<W: Write + Seek> {
@@ -621,12 +607,10 @@ impl<W: Write + Seek> Write for FolderWriter<W> {
     }
 }
 
-// ========================================================================= //
-
 #[cfg(test)]
 mod tests {
     use super::CabinetBuilder;
-    use crate::internal::ctype::CompressionType;
+    use crate::ctype::CompressionType;
     use std::io::{Cursor, Write};
     use time::macros::datetime;
 
@@ -700,5 +684,3 @@ mod tests {
         assert_eq!(output.as_slice(), expected);
     }
 }
-
-// ========================================================================= //

@@ -1,5 +1,3 @@
-// ========================================================================= //
-
 macro_rules! invalid_data {
     ($e:expr) => {
         return Err(::std::io::Error::new(::std::io::ErrorKind::InvalidData,
@@ -31,5 +29,3 @@ macro_rules! not_found {
                                          format!($fmt, $($arg)+)))
     };
 }
-
-// ========================================================================= //
