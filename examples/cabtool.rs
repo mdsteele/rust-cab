@@ -46,7 +46,8 @@ fn main() {
         Command::Cat { path, files } => {
             let cabinet = Cabinet::new(File::open(path).unwrap()).unwrap();
             for filename in files {
-                while let Some(folder) = cabinet.folder_entries().next() {
+                let mut folder_entries = cabinet.folder_entries();
+                while let Some(folder) = folder_entries.next() {
                     let folder = folder.unwrap();
                     for mut file in folder.file_entries() {
                         if file.name() == filename {
@@ -112,7 +113,8 @@ fn main() {
         Command::Ls { path, long } => {
             let cabinet = Cabinet::new(File::open(path).unwrap()).unwrap();
             let mut index = 0;
-            while let Some(folder) = cabinet.folder_entries().next() {
+            let mut folder_entries = cabinet.folder_entries();
+            while let Some(folder) = folder_entries.next() {
                 let folder = folder.unwrap();
                 for file in folder.file_entries() {
                     list_file(index, &folder, &file, long);
