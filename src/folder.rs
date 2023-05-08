@@ -31,12 +31,22 @@ pub(crate) struct _FolderEntry {
     pub(crate) files_count: usize,
 }
 
+#[derive(Debug, Clone)]
+struct DataBlockEntry {
+    checksum: u32,
+    compressed_size: u16,
+    uncompressed_size: u16,
+    reserve_data: Vec<u8>,
+    data_offset: u64,
+    cumulative_size: u64,
+}
+
 /// A reader for reading decompressed data from a cabinet folder.
 pub(crate) struct FolderReader<'a, R: 'a> {
     reader: &'a mut R,
     decompressor: FolderDecompressor,
-    data_reserve_size: usize,
-    data_blocks: Vec<(u64, u64)>,
+    total_size: u64,
+    data_blocks: Vec<DataBlockEntry>,
     current_block_index: usize,
     current_block_data: Vec<u8>,
     current_offset_within_block: usize,
@@ -91,22 +101,22 @@ impl<'a> FolderEntry<'a> {
 
 impl<'a, R: 'a + Read + Seek> FolderReader<'a, R> {
     pub(crate) fn new(
-        reader: &'a mut R,
+        mut reader: &'a mut R,
         entry: &_FolderEntry,
         data_reserve_size: u8,
     ) -> io::Result<FolderReader<'a, R>> {
         let num_data_blocks = entry.num_data_blocks as usize;
-        let mut data_blocks =
-            Vec::<(u64, u64)>::with_capacity(num_data_blocks);
-        let mut cumulative_size: u64 = 0;
-        let mut offset = entry.first_data_block_offset as u64;
+        let mut data_blocks = Vec::with_capacity(num_data_blocks);
+        let mut total_size: u64 = 0;
+        reader.seek(SeekFrom::Start(entry.first_data_block_offset as u64))?;
         for _ in 0..num_data_blocks {
-            reader.seek(SeekFrom::Start(offset + 4))?;
-            let compressed_size = reader.read_u16::<LittleEndian>()? as u64;
-            let uncompressed_size = reader.read_u16::<LittleEndian>()? as u64;
-            cumulative_size += uncompressed_size;
-            data_blocks.push((cumulative_size, offset));
-            offset += 8 + data_reserve_size as u64 + compressed_size;
+            let block = parse_block_entry(
+                &mut reader,
+                total_size,
+                data_reserve_size as usize,
+            )?;
+            total_size += block.uncompressed_size as u64;
+            data_blocks.push(block);
         }
         let decompressor = match entry.compression_type {
             CompressionType::None => FolderDecompressor::Uncompressed,
@@ -138,7 +148,7 @@ impl<'a, R: 'a + Read + Seek> FolderReader<'a, R> {
         let mut folder_reader = FolderReader {
             reader,
             decompressor,
-            data_reserve_size: data_reserve_size as usize,
+            total_size,
             data_blocks,
             current_block_index: 0,
             current_block_data: Vec::new(),
@@ -149,18 +159,11 @@ impl<'a, R: 'a + Read + Seek> FolderReader<'a, R> {
         Ok(folder_reader)
     }
 
-    fn total_size(&self) -> u64 {
-        match self.data_blocks.last() {
-            Some(&(cumulative_size, _)) => cumulative_size,
-            None => 0,
-        }
-    }
-
     fn current_block_start(&self) -> u64 {
         if self.current_block_index == 0 {
             0
         } else {
-            self.data_blocks[self.current_block_index - 1].0
+            self.data_blocks[self.current_block_index - 1].cumulative_size
         }
     }
 
@@ -179,28 +182,23 @@ impl<'a, R: 'a + Read + Seek> FolderReader<'a, R> {
             self.current_block_data = Vec::new();
             return Ok(());
         }
-        let offset = self.data_blocks[self.current_block_index].1;
-        self.reader.seek(SeekFrom::Start(offset))?;
-        let expected_checksum = self.reader.read_u32::<LittleEndian>()?;
-        let compressed_size = self.reader.read_u16::<LittleEndian>()?;
-        let uncompressed_size = self.reader.read_u16::<LittleEndian>()?;
-        let mut reserve_data = vec![0u8; self.data_reserve_size];
-        self.reader.read_exact(&mut reserve_data)?;
-        let mut compressed_data = vec![0u8; compressed_size as usize];
+        let block = &self.data_blocks[self.current_block_index];
+        self.reader.seek(SeekFrom::Start(block.data_offset))?;
+        let mut compressed_data = vec![0u8; block.compressed_size as usize];
         self.reader.read_exact(&mut compressed_data)?;
-        if expected_checksum != 0 {
+        if block.checksum != 0 {
             let mut checksum = Checksum::new();
-            checksum.append(&reserve_data);
-            checksum.append(&compressed_data);
+            checksum.update(&block.reserve_data);
+            checksum.update(&compressed_data);
             let actual_checksum = checksum.value()
-                ^ ((compressed_size as u32)
-                    | ((uncompressed_size as u32) << 16));
-            if actual_checksum != expected_checksum {
+                ^ ((block.compressed_size as u32)
+                    | ((block.uncompressed_size as u32) << 16));
+            if actual_checksum != block.checksum {
                 invalid_data!(
                     "Checksum error in data block {} \
                      (expected {:08x}, actual {:08x})",
                     self.current_block_index,
-                    expected_checksum,
+                    block.checksum,
                     actual_checksum
                 );
             }
@@ -208,12 +206,10 @@ impl<'a, R: 'a + Read + Seek> FolderReader<'a, R> {
         self.current_block_data = match self.decompressor {
             FolderDecompressor::Uncompressed => compressed_data,
             FolderDecompressor::MsZip(ref mut decompressor) => decompressor
-                .decompress_block(&compressed_data, uncompressed_size)?,
+                .decompress_block(&compressed_data, block.uncompressed_size)?,
             FolderDecompressor::Lzx(ref mut decompressor) => decompressor
                 .decompress_next(&compressed_data)
-                .map_err(|e| {
-                    std::io::Error::new(std::io::ErrorKind::Other, e)
-                })?
+                .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?
                 .to_vec(),
         };
         Ok(())
@@ -246,19 +242,18 @@ impl<'a, R: Read + Seek> Read for FolderReader<'a, R> {
 
 impl<'a, R: Read + Seek> Seek for FolderReader<'a, R> {
     fn seek(&mut self, pos: SeekFrom) -> io::Result<u64> {
-        let total_size = self.total_size();
         let new_offset = match pos {
             SeekFrom::Start(offset) => offset as i64,
             SeekFrom::Current(delta) => {
                 self.current_offset_within_folder as i64 + delta
             }
-            SeekFrom::End(delta) => total_size as i64 + delta,
+            SeekFrom::End(delta) => self.total_size as i64 + delta,
         };
-        if new_offset < 0 || (new_offset as u64) > total_size {
+        if new_offset < 0 || (new_offset as u64) > self.total_size {
             invalid_input!(
                 "Cannot seek to {}, data length is {}",
                 new_offset,
-                total_size
+                self.total_size
             );
         }
         let new_offset = new_offset as u64;
@@ -268,7 +263,9 @@ impl<'a, R: Read + Seek> Seek for FolderReader<'a, R> {
         if new_offset > 0 {
             // TODO: If folder is uncompressed, we should just jump straight to
             // the correct block without "decompressing" those in between.
-            while self.data_blocks[self.current_block_index].0 < new_offset {
+            while self.data_blocks[self.current_block_index].cumulative_size
+                < new_offset
+            {
                 self.current_block_index += 1;
                 self.load_block()?;
             }
@@ -302,4 +299,28 @@ pub(crate) fn parse_folder_entry<R: Read>(
         files_count: 0,
     };
     Ok(entry)
+}
+
+fn parse_block_entry<R: Read + Seek>(
+    mut reader: R,
+    cumulative_size: u64,
+    data_reserve_size: usize,
+) -> io::Result<DataBlockEntry> {
+    let checksum = reader.read_u32::<LittleEndian>()?;
+    let compressed_size = reader.read_u16::<LittleEndian>()?;
+    let uncompressed_size = reader.read_u16::<LittleEndian>()?;
+    let mut reserve_data = vec![0u8; data_reserve_size];
+    reader.read_exact(&mut reserve_data)?;
+    let data_offset = reader.stream_position()?;
+    reader.seek(SeekFrom::Current(compressed_size as i64))?;
+    let cumulative_size = cumulative_size + uncompressed_size as u64;
+
+    Ok(DataBlockEntry {
+        checksum,
+        compressed_size,
+        uncompressed_size,
+        reserve_data,
+        cumulative_size,
+        data_offset,
+    })
 }

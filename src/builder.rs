@@ -570,7 +570,7 @@ impl<W: Write + Seek> FolderWriter<W> {
         };
         let compressed_size = compressed.len() as u16;
         let mut checksum = Checksum::new();
-        checksum.append(&compressed);
+        checksum.update(&compressed);
         let checksum_value = checksum.value()
             ^ ((compressed_size as u32) | ((uncompressed_size as u32) << 16));
         let total_data_block_size = 8 + compressed_size as u64;

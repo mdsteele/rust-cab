@@ -28,7 +28,7 @@ impl Checksum {
         }
     }
 
-    pub fn append(&mut self, buf: &[u8]) {
+    pub fn update(&mut self, buf: &[u8]) {
         for &byte in buf {
             self.remainder |= (byte as u32) << self.remainder_shift;
             if self.remainder_shift == 24 {
@@ -54,11 +54,11 @@ mod tests {
     #[test]
     fn simple_checksums() {
         let mut checksum = Checksum::new();
-        checksum.append(b"\x0e\0\x0e\0Hello, world!\n");
+        checksum.update(b"\x0e\0\x0e\0Hello, world!\n");
         assert_eq!(checksum.value(), 0x7f2e1a4c);
 
         let mut checksum = Checksum::new();
-        checksum.append(b"\x1d\0\x1d\0Hello, world!\nSee you later!\n");
+        checksum.update(b"\x1d\0\x1d\0Hello, world!\nSee you later!\n");
         assert_eq!(checksum.value(), 0x3509541a);
     }
 
@@ -66,7 +66,7 @@ mod tests {
     fn checksum_from_cab_spec() {
         // This comes from the example cabinet file found in the CAB spec.
         let mut checksum = Checksum::new();
-        checksum.append(
+        checksum.update(
             b"\x97\0\x97\0#include <stdio.h>\r\n\r\n\
               void main(void)\r\n{\r\n    \
               printf(\"Hello, world!\\n\");\r\n}\r\n\
