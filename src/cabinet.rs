@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::io::{self, Read, Seek, SeekFrom};
 
 use byteorder::{LittleEndian, ReadBytesExt};
@@ -5,19 +6,26 @@ use byteorder::{LittleEndian, ReadBytesExt};
 use crate::consts;
 use crate::file::{parse_file_entry, FileEntry, FileReader};
 use crate::folder::{
-    _FolderEntry, parse_folder_entry, FolderEntries, FolderReader,
+    FolderEntries, FolderReader, _FolderEntry, parse_folder_entry,
 };
 use crate::string::read_null_terminated_string;
 
+pub(crate) trait ReadSeek: Read + Seek {}
+impl<R: Read + Seek> ReadSeek for R {}
+
 /// A structure for reading a cabinet file.
-pub struct Cabinet<R> {
-    reader: R,
+pub struct Cabinet<R: ?Sized> {
+    pub(crate) inner: CabinetInner<R>,
+}
+
+pub(crate) struct CabinetInner<R: ?Sized> {
     cabinet_set_id: u16,
     cabinet_set_index: u16,
     data_reserve_size: u8,
     reserve_data: Vec<u8>,
     folders: Vec<_FolderEntry>,
     files: Vec<FileEntry>,
+    reader: RefCell<R>,
 }
 
 impl<R: Read + Seek> Cabinet<R> {
@@ -106,41 +114,46 @@ impl<R: Read + Seek> Cabinet<R> {
             files.push(entry);
         }
         Ok(Cabinet {
-            reader,
-            cabinet_set_id,
-            cabinet_set_index,
-            data_reserve_size,
-            reserve_data: header_reserve_data,
-            folders,
-            files,
+            inner: CabinetInner {
+                cabinet_set_id,
+                cabinet_set_index,
+                data_reserve_size,
+                reserve_data: header_reserve_data,
+                folders,
+                files,
+                reader: RefCell::new(reader),
+            },
         })
     }
 
     /// Returns the cabinet set ID for this cabinet (an arbitrary number used
     /// to group together a set of cabinets).
     pub fn cabinet_set_id(&self) -> u16 {
-        self.cabinet_set_id
+        self.inner.cabinet_set_id
     }
 
     /// Returns this cabinet's (zero-based) index within its cabinet set.
     pub fn cabinet_set_index(&self) -> u16 {
-        self.cabinet_set_index
+        self.inner.cabinet_set_index
     }
 
     /// Returns the application-defined reserve data stored in the cabinet
     /// header.
     pub fn reserve_data(&self) -> &[u8] {
-        &self.reserve_data
+        &self.inner.reserve_data
     }
 
     /// Returns an iterator over the folder entries in this cabinet.
     pub fn folder_entries(&self) -> FolderEntries {
-        FolderEntries { iter: self.folders.iter(), files: &self.files }
+        FolderEntries {
+            iter: self.inner.folders.iter(),
+            files: &self.inner.files,
+        }
     }
 
     /// Returns the entry for the file with the given name, if any..
     pub fn get_file_entry(&self, name: &str) -> Option<&FileEntry> {
-        self.files.iter().find(|&file| file.name() == name)
+        self.inner.files.iter().find(|&file| file.name() == name)
     }
 
     /// Returns a reader over the decompressed data for the file in the cabinet
@@ -162,18 +175,32 @@ impl<R: Read + Seek> Cabinet<R> {
 
     /// Returns a reader over the decompressed data in the specified folder.
     fn read_folder(&mut self, index: usize) -> io::Result<FolderReader<R>> {
-        if index >= self.folders.len() {
+        if index >= self.inner.folders.len() {
             invalid_input!(
                 "Folder index {} is out of range (cabinet has {} folders)",
                 index,
-                self.folders.len()
+                self.inner.folders.len()
             );
         }
+
+        let me: &Cabinet<dyn ReadSeek> = self;
         FolderReader::new(
-            &mut self.reader,
-            &self.folders[index],
-            self.data_reserve_size,
+            me,
+            &self.inner.folders[index],
+            self.inner.data_reserve_size,
         )
+    }
+}
+
+impl<'a, R: ?Sized + Read> Read for &'a CabinetInner<R> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        self.reader.borrow_mut().read(buf)
+    }
+}
+
+impl<'a, R: ?Sized + Seek> Seek for &'a CabinetInner<R> {
+    fn seek(&mut self, pos: SeekFrom) -> io::Result<u64> {
+        self.reader.borrow_mut().seek(pos)
     }
 }
 

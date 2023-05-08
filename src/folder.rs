@@ -1,9 +1,11 @@
 use std::io::{self, Read, Seek, SeekFrom};
+use std::marker::PhantomData;
 use std::slice;
 
 use byteorder::{LittleEndian, ReadBytesExt};
 use lzxd::Lzxd;
 
+use crate::cabinet::{Cabinet, ReadSeek};
 use crate::checksum::Checksum;
 use crate::ctype::CompressionType;
 use crate::file::{FileEntries, FileEntry};
@@ -42,8 +44,8 @@ struct DataBlockEntry {
 }
 
 /// A reader for reading decompressed data from a cabinet folder.
-pub(crate) struct FolderReader<'a, R: 'a> {
-    reader: &'a mut R,
+pub(crate) struct FolderReader<'a, R> {
+    reader: &'a Cabinet<dyn ReadSeek + 'a>,
     decompressor: FolderDecompressor,
     total_size: u64,
     data_blocks: Vec<DataBlockEntry>,
@@ -51,6 +53,7 @@ pub(crate) struct FolderReader<'a, R: 'a> {
     current_block_data: Vec<u8>,
     current_offset_within_block: usize,
     current_offset_within_folder: u64,
+    _p: PhantomData<R>,
 }
 
 enum FolderDecompressor {
@@ -99,22 +102,22 @@ impl<'a> FolderEntry<'a> {
     }
 }
 
-impl<'a, R: 'a + Read + Seek> FolderReader<'a, R> {
+impl<'a, R: Read + Seek> FolderReader<'a, R> {
     pub(crate) fn new(
-        mut reader: &'a mut R,
+        reader: &'a Cabinet<dyn ReadSeek + 'a>,
         entry: &_FolderEntry,
         data_reserve_size: u8,
     ) -> io::Result<FolderReader<'a, R>> {
         let num_data_blocks = entry.num_data_blocks as usize;
         let mut data_blocks = Vec::with_capacity(num_data_blocks);
         let mut total_size: u64 = 0;
-        reader.seek(SeekFrom::Start(entry.first_data_block_offset as u64))?;
+
+        let r = &mut &reader.inner;
+        r.seek(SeekFrom::Start(entry.first_data_block_offset as u64))?;
         for _ in 0..num_data_blocks {
-            let block = parse_block_entry(
-                &mut reader,
-                total_size,
-                data_reserve_size as usize,
-            )?;
+            let r = &mut &reader.inner;
+            let block =
+                parse_block_entry(r, total_size, data_reserve_size as usize)?;
             total_size += block.uncompressed_size as u64;
             data_blocks.push(block);
         }
@@ -154,6 +157,7 @@ impl<'a, R: 'a + Read + Seek> FolderReader<'a, R> {
             current_block_data: Vec::new(),
             current_offset_within_block: 0,
             current_offset_within_folder: 0,
+            _p: PhantomData,
         };
         folder_reader.load_block()?;
         Ok(folder_reader)
@@ -183,9 +187,11 @@ impl<'a, R: 'a + Read + Seek> FolderReader<'a, R> {
             return Ok(());
         }
         let block = &self.data_blocks[self.current_block_index];
-        self.reader.seek(SeekFrom::Start(block.data_offset))?;
+        let reader = &mut &self.reader.inner;
+
+        reader.seek(SeekFrom::Start(block.data_offset))?;
         let mut compressed_data = vec![0u8; block.compressed_size as usize];
-        self.reader.read_exact(&mut compressed_data)?;
+        reader.read_exact(&mut compressed_data)?;
         if block.checksum != 0 {
             let mut checksum = Checksum::new();
             checksum.update(&block.reserve_data);
@@ -216,7 +222,7 @@ impl<'a, R: 'a + Read + Seek> FolderReader<'a, R> {
     }
 }
 
-impl<'a, R: Read + Seek> Read for FolderReader<'a, R> {
+impl<'a, R: Read + Seek + 'a> Read for FolderReader<'a, R> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         if buf.is_empty() || self.current_block_index >= self.data_blocks.len()
         {
@@ -301,7 +307,7 @@ pub(crate) fn parse_folder_entry<R: Read>(
     Ok(entry)
 }
 
-fn parse_block_entry<R: Read + Seek>(
+fn parse_block_entry<R: ReadSeek>(
     mut reader: R,
     cumulative_size: u64,
     data_reserve_size: usize,
