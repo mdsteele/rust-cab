@@ -16,6 +16,7 @@ pub struct FileEntries<'a> {
 }
 
 /// Metadata about one file stored in a cabinet.
+#[derive(Debug, Clone)]
 pub struct FileEntry {
     name: String,
     datetime: Option<PrimitiveDateTime>,
@@ -108,7 +109,7 @@ impl<'a, R: Read + Seek> Read for FileReader<'a, R> {
         if max_bytes == 0 {
             return Ok(0);
         }
-        let bytes_read = self.reader.read(&mut buf[0..max_bytes])?;
+        let bytes_read = self.reader.read(&mut buf[..max_bytes])?;
         self.offset += bytes_read as u64;
         Ok(bytes_read)
     }
