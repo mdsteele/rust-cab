@@ -214,7 +214,10 @@ impl<'a, R: Read + Seek> FolderReader<'a, R> {
             FolderDecompressor::MsZip(ref mut decompressor) => decompressor
                 .decompress_block(&compressed_data, block.uncompressed_size)?,
             FolderDecompressor::Lzx(ref mut decompressor) => decompressor
-                .decompress_next(&compressed_data)
+                .decompress_next(
+                    &compressed_data,
+                    block.uncompressed_size as usize,
+                )
                 .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?
                 .to_vec(),
         };
