@@ -12,7 +12,7 @@ readme = "README.md"
 [dependencies]
 byteorder = "1"
 flate2 = { version = "1", features = ["rust_backend"], default-features = false }
-lzxd = "0.1.4"
+lzxd = "0.2"
 time = "0.3"
 
 [dev-dependencies]
