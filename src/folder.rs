@@ -3,13 +3,11 @@ use std::marker::PhantomData;
 use std::slice;
 
 use byteorder::{LittleEndian, ReadBytesExt};
-use lzxd::Lzxd;
 
 use crate::cabinet::{Cabinet, ReadSeek};
 use crate::checksum::Checksum;
-use crate::ctype::CompressionType;
+use crate::ctype::{CompressionType, Decompressor};
 use crate::file::{FileEntries, FileEntry};
-use crate::mszip::MsZipDecompressor;
 
 /// An iterator over the folder entries in a cabinet.
 #[derive(Clone)]
@@ -46,7 +44,7 @@ struct DataBlockEntry {
 /// A reader for reading decompressed data from a cabinet folder.
 pub(crate) struct FolderReader<'a, R> {
     reader: &'a Cabinet<dyn ReadSeek + 'a>,
-    decompressor: FolderDecompressor,
+    decompressor: Decompressor,
     total_size: u64,
     data_blocks: Vec<DataBlockEntry>,
     current_block_index: usize,
@@ -54,13 +52,6 @@ pub(crate) struct FolderReader<'a, R> {
     current_offset_within_block: usize,
     current_offset_within_folder: u64,
     _p: PhantomData<R>,
-}
-
-enum FolderDecompressor {
-    Uncompressed,
-    MsZip(Box<MsZipDecompressor>),
-    Lzx(Box<Lzxd>),
-    // TODO: add options for other compression types
 }
 
 impl<'a> Iterator for FolderEntries<'a> {
@@ -121,33 +112,7 @@ impl<'a, R: Read + Seek> FolderReader<'a, R> {
             total_size += block.uncompressed_size as u64;
             data_blocks.push(block);
         }
-        let decompressor = match entry.compression_type {
-            CompressionType::None => FolderDecompressor::Uncompressed,
-            CompressionType::MsZip => {
-                FolderDecompressor::MsZip(Box::new(MsZipDecompressor::new()))
-            }
-            CompressionType::Quantum(_, _) => {
-                invalid_data!("Quantum decompression is not yet supported.");
-            }
-            CompressionType::Lzx(window_size) => {
-                let lzxd = Lzxd::new(match window_size {
-                    15 => lzxd::WindowSize::KB32,
-                    16 => lzxd::WindowSize::KB64,
-                    17 => lzxd::WindowSize::KB128,
-                    18 => lzxd::WindowSize::KB256,
-                    19 => lzxd::WindowSize::KB512,
-                    20 => lzxd::WindowSize::MB1,
-                    21 => lzxd::WindowSize::MB2,
-                    22 => lzxd::WindowSize::MB4,
-                    23 => lzxd::WindowSize::MB8,
-                    24 => lzxd::WindowSize::MB16,
-                    25 => lzxd::WindowSize::MB32,
-
-                    _ => invalid_data!("LZX given with invalid window size"),
-                });
-                FolderDecompressor::Lzx(Box::new(lzxd))
-            }
-        };
+        let decompressor = entry.compression_type.into_decompressor()?;
         let mut folder_reader = FolderReader {
             reader,
             decompressor,
@@ -176,6 +141,7 @@ impl<'a, R: Read + Seek> FolderReader<'a, R> {
         self.current_offset_within_folder = 0;
         if self.current_block_index != 0 {
             self.current_block_index = 0;
+            self.decompressor.reset();
             self.load_block()?;
         }
         Ok(())
@@ -209,18 +175,9 @@ impl<'a, R: Read + Seek> FolderReader<'a, R> {
                 );
             }
         }
-        self.current_block_data = match self.decompressor {
-            FolderDecompressor::Uncompressed => compressed_data,
-            FolderDecompressor::MsZip(ref mut decompressor) => decompressor
-                .decompress_block(&compressed_data, block.uncompressed_size)?,
-            FolderDecompressor::Lzx(ref mut decompressor) => decompressor
-                .decompress_next(
-                    &compressed_data,
-                    block.uncompressed_size as usize,
-                )
-                .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?
-                .to_vec(),
-        };
+        self.current_block_data = self
+            .decompressor
+            .decompress(compressed_data, block.uncompressed_size as usize)?;
         Ok(())
     }
 }
