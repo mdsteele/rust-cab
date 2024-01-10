@@ -92,13 +92,15 @@
 
 #![warn(missing_docs)]
 
-pub use crate::builder::{
+pub use lzxd::WindowSize;
+
+pub use builder::{
     CabinetBuilder, CabinetWriter, FileBuilder, FileWriter, FolderBuilder,
 };
-pub use crate::cabinet::Cabinet;
-pub use crate::ctype::CompressionType;
-pub use crate::file::{FileEntries, FileEntry, FileReader};
-pub use crate::folder::{FolderEntries, FolderEntry};
+pub use cabinet::Cabinet;
+pub use ctype::CompressionType;
+pub use file::{FileEntries, FileEntry, FileReader};
+pub use folder::{FolderEntries, FolderEntry};
 
 #[macro_use]
 mod macros;
