@@ -67,10 +67,15 @@ impl MsZipDecompressor {
         }
     }
 
+    pub fn reset(&mut self) {
+        self.decompressor.reset(true);
+        self.dictionary = Vec::with_capacity(DEFLATE_MAX_DICT_LEN);
+    }
+
     pub fn decompress_block(
         &mut self,
         data: &[u8],
-        uncompressed_size: u16,
+        uncompressed_size: usize,
     ) -> io::Result<Vec<u8>> {
         // Check signature:
         if data.len() < MSZIP_SIGNATURE_LEN
@@ -99,7 +104,7 @@ impl MsZipDecompressor {
             }
         }
         // Decompress data:
-        let mut out = Vec::<u8>::with_capacity(uncompressed_size as usize);
+        let mut out = Vec::<u8>::with_capacity(uncompressed_size);
         let flush = flate2::FlushDecompress::Finish;
         match self.decompressor.decompress_vec(data, &mut out, flush) {
             Ok(_) => {}
@@ -107,7 +112,7 @@ impl MsZipDecompressor {
                 invalid_data!("MSZIP decompression failed: {}", error);
             }
         }
-        if out.len() != uncompressed_size as usize {
+        if out.len() != uncompressed_size {
             invalid_data!(
                 "MSZIP decompression failed: Incorrect uncompressed size \
                  (expected {}, was actually {})",
@@ -149,9 +154,8 @@ mod tests {
               do eiusmod tempor incididunt ut labore et dolore magna aliqua.";
         assert!(input.len() < expected.len());
         let mut decompressor = MsZipDecompressor::new();
-        let output = decompressor
-            .decompress_block(&input, expected.len() as u16)
-            .unwrap();
+        let output =
+            decompressor.decompress_block(&input, expected.len()).unwrap();
         assert_eq!(output, expected);
     }
 
@@ -331,9 +335,7 @@ mod tests {
         let mut decompressor = MsZipDecompressor::new();
         for (size, compressed) in blocks.into_iter() {
             output.append(
-                &mut decompressor
-                    .decompress_block(&compressed, size as u16)
-                    .unwrap(),
+                &mut decompressor.decompress_block(&compressed, size).unwrap(),
             );
         }
         output

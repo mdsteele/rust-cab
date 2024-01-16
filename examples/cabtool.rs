@@ -55,18 +55,15 @@ fn main() {
                 _ => panic!("Invalid compression type: {}", compress),
             };
 
-            let output = match output {
-                Some(out) => out,
-                None => {
-                    let mut path = PathBuf::from("out.cab");
-                    let mut index: i32 = 0;
-                    while path.exists() {
-                        index += 1;
-                        path = PathBuf::from(format!("out{}.cab", index));
-                    }
-                    path
+            let output = output.unwrap_or_else(|| {
+                let mut path = PathBuf::from("out.cab");
+                let mut index: i32 = 0;
+                while path.exists() {
+                    index += 1;
+                    path = PathBuf::from(format!("out{}.cab", index));
                 }
-            };
+                path
+            });
             let mut builder = CabinetBuilder::new();
             let mut file_index: usize = 0;
             while file_index < files.len() {
@@ -125,7 +122,7 @@ fn list_file(
         CompressionType::None => "None".to_string(),
         CompressionType::MsZip => "MsZip".to_string(),
         CompressionType::Quantum(v, m) => format!("Q{}/{}", v, m),
-        CompressionType::Lzx(w) => format!("Lzx{}", w),
+        CompressionType::Lzx(w) => format!("Lzx{:?}", w),
     };
     let file_size = if file.uncompressed_size() >= 100_000_000 {
         format!("{} MB", file.uncompressed_size() / (1 << 20))
