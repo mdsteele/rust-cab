@@ -6,7 +6,7 @@ use byteorder::{LittleEndian, ReadBytesExt};
 use crate::consts;
 use crate::file::{parse_file_entry, FileEntry, FileReader};
 use crate::folder::{
-    FolderEntries, FolderReader, _FolderEntry, parse_folder_entry,
+    parse_folder_entry, FolderEntries, FolderEntry, FolderReader,
 };
 use crate::string::read_null_terminated_string;
 
@@ -23,7 +23,7 @@ pub(crate) struct CabinetInner<R: ?Sized> {
     cabinet_set_index: u16,
     data_reserve_size: u8,
     reserve_data: Vec<u8>,
-    folders: Vec<_FolderEntry>,
+    folders: Vec<FolderEntry>,
     files: Vec<FileEntry>,
     reader: RefCell<R>,
 }
@@ -91,26 +91,22 @@ impl<R: Read + Seek> Cabinet<R> {
         } else {
             None
         };
-        let mut folders = Vec::<_FolderEntry>::with_capacity(num_folders);
+        let mut folders = Vec::with_capacity(num_folders);
         for _ in 0..num_folders {
             let entry =
                 parse_folder_entry(&mut reader, folder_reserve_size as usize)?;
             folders.push(entry);
         }
         reader.seek(SeekFrom::Start(first_file_offset as u64))?;
-        let mut files = Vec::<FileEntry>::with_capacity(num_files as usize);
-        let mut current_folder_idx = 0;
-        for idx in 0..num_files {
+        let mut files = Vec::with_capacity(num_files as usize);
+        for _ in 0..num_files {
             let entry = parse_file_entry(&mut reader)?;
             let folder_index = entry.folder_index as usize;
             if folder_index >= folders.len() {
                 invalid_data!("File entry folder index out of bounds");
             }
-            if folder_index != current_folder_idx {
-                folders[folder_index].file_idx_start = idx as usize;
-                current_folder_idx = folder_index;
-            }
-            folders[current_folder_idx].files_count += 1;
+            let folder = &mut folders[folder_index];
+            folder.files.push(entry.clone());
             files.push(entry);
         }
         Ok(Cabinet {
@@ -145,10 +141,7 @@ impl<R: Read + Seek> Cabinet<R> {
 
     /// Returns an iterator over the folder entries in this cabinet.
     pub fn folder_entries(&self) -> FolderEntries {
-        FolderEntries {
-            iter: self.inner.folders.iter(),
-            files: &self.inner.files,
-        }
+        FolderEntries { iter: self.inner.folders.iter() }
     }
 
     /// Returns the entry for the file with the given name, if any..
