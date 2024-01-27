@@ -12,23 +12,16 @@ use crate::file::{FileEntries, FileEntry};
 /// An iterator over the folder entries in a cabinet.
 #[derive(Clone)]
 pub struct FolderEntries<'a> {
-    pub(crate) iter: slice::Iter<'a, _FolderEntry>,
-    pub(crate) files: &'a [FileEntry],
+    pub(crate) iter: slice::Iter<'a, FolderEntry>,
 }
 
 /// Metadata about one folder in a cabinet.
-pub struct FolderEntry<'a> {
-    entry: &'a _FolderEntry,
-    files: &'a [FileEntry],
-}
-
-pub(crate) struct _FolderEntry {
+pub struct FolderEntry {
     first_data_block_offset: u32,
     num_data_blocks: u16,
     compression_type: CompressionType,
     reserve_data: Vec<u8>,
-    pub(crate) file_idx_start: usize,
-    pub(crate) files_count: usize,
+    pub(crate) files: Vec<FileEntry>,
 }
 
 #[derive(Debug, Clone)]
@@ -55,13 +48,10 @@ pub(crate) struct FolderReader<'a, R> {
 }
 
 impl<'a> Iterator for FolderEntries<'a> {
-    type Item = FolderEntry<'a>;
+    type Item = &'a FolderEntry;
 
-    fn next(&mut self) -> Option<FolderEntry<'a>> {
-        let entry = self.iter.next()?;
-        let files = &self.files
-            [entry.file_idx_start..entry.file_idx_start + entry.files_count];
-        Some(FolderEntry { entry, files })
+    fn next(&mut self) -> Option<Self::Item> {
+        self.iter.next()
     }
 
     fn size_hint(&self) -> (usize, Option<usize>) {
@@ -71,20 +61,20 @@ impl<'a> Iterator for FolderEntries<'a> {
 
 impl<'a> ExactSizeIterator for FolderEntries<'a> {}
 
-impl<'a> FolderEntry<'a> {
+impl FolderEntry {
     /// Returns the scheme used to compress this folder's data.
     pub fn compression_type(&self) -> CompressionType {
-        self.entry.compression_type
+        self.compression_type
     }
 
     /// Returns the number of data blocks used to store this folder's data.
     pub fn num_data_blocks(&self) -> u16 {
-        self.entry.num_data_blocks
+        self.num_data_blocks
     }
 
     /// Returns the application-defined reserve data for this folder.
     pub fn reserve_data(&self) -> &[u8] {
-        &self.entry.reserve_data
+        &self.reserve_data
     }
 
     /// Returns an iterator over the file entries in this folder.
@@ -96,7 +86,7 @@ impl<'a> FolderEntry<'a> {
 impl<'a, R: Read + Seek> FolderReader<'a, R> {
     pub(crate) fn new(
         reader: &'a Cabinet<dyn ReadSeek + 'a>,
-        entry: &_FolderEntry,
+        entry: &FolderEntry,
         data_reserve_size: u8,
     ) -> io::Result<FolderReader<'a, R>> {
         let num_data_blocks = entry.num_data_blocks as usize;
@@ -247,7 +237,7 @@ impl<'a, R: Read + Seek> Seek for FolderReader<'a, R> {
 pub(crate) fn parse_folder_entry<R: Read>(
     mut reader: R,
     reserve_size: usize,
-) -> io::Result<_FolderEntry> {
+) -> io::Result<FolderEntry> {
     let first_data_offset = reader.read_u32::<LittleEndian>()?;
     let num_data_blocks = reader.read_u16::<LittleEndian>()?;
     let compression_bits = reader.read_u16::<LittleEndian>()?;
@@ -256,13 +246,12 @@ pub(crate) fn parse_folder_entry<R: Read>(
     if reserve_size > 0 {
         reader.read_exact(&mut folder_reserve_data)?;
     }
-    let entry = _FolderEntry {
+    let entry = FolderEntry {
         first_data_block_offset: first_data_offset,
         num_data_blocks,
         compression_type,
         reserve_data: folder_reserve_data,
-        file_idx_start: 0,
-        files_count: 0,
+        files: vec![],
     };
     Ok(entry)
 }
