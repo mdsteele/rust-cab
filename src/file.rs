@@ -29,6 +29,7 @@ pub struct FileEntry {
 /// A reader for reading decompressed data from a cabinet file.
 pub struct FileReader<'a, R: 'a> {
     pub(crate) reader: FolderReader<'a, R>,
+    pub(crate) file_start_in_folder: u64,
     pub(crate) offset: u64,
     pub(crate) size: u64,
 }
@@ -129,10 +130,12 @@ impl<'a, R: Read + Seek> Seek for FileReader<'a, R> {
                 self.size
             );
         }
-        self.reader
-            .seek(SeekFrom::Current(new_offset - self.offset as i64))?;
-        self.offset = new_offset as u64;
-        Ok(self.offset)
+        let new_offset = new_offset as u64;
+        self.reader.seek_to_uncompressed_offset(
+            self.file_start_in_folder + new_offset,
+        )?;
+        self.offset = new_offset;
+        Ok(new_offset)
     }
 }
 
