@@ -37,8 +37,12 @@ struct DataBlockEntry {
 /// A reader for reading decompressed data from a cabinet folder.
 pub(crate) struct FolderReader<'a, R> {
     reader: &'a Cabinet<dyn ReadSeek + 'a>,
+    num_data_blocks: usize,
+    data_reserve_size: u8,
     decompressor: Decompressor,
-    total_size: u64,
+    /// The data blocks we've read so far.
+    /// This always has len() <= num_data_blocks and grows once we encounter
+    /// a new block in load_block().
     data_blocks: Vec<DataBlockEntry>,
     current_block_index: usize,
     current_block_data: Vec<u8>,
@@ -91,22 +95,21 @@ impl<'a, R: Read + Seek> FolderReader<'a, R> {
     ) -> io::Result<FolderReader<'a, R>> {
         let num_data_blocks = entry.num_data_blocks as usize;
         let mut data_blocks = Vec::with_capacity(num_data_blocks);
-        let mut total_size: u64 = 0;
 
         let r = &mut &reader.inner;
         r.seek(SeekFrom::Start(entry.first_data_block_offset as u64))?;
-        for _ in 0..num_data_blocks {
-            let r = &mut &reader.inner;
-            let block =
-                parse_block_entry(r, total_size, data_reserve_size as usize)?;
-            total_size += block.uncompressed_size as u64;
-            data_blocks.push(block);
+        if num_data_blocks != 0 {
+            let first_block =
+                parse_block_entry(*r, 0, data_reserve_size as usize)?;
+            data_blocks.push(first_block);
         }
+
         let decompressor = entry.compression_type.into_decompressor()?;
         let mut folder_reader = FolderReader {
             reader,
+            num_data_blocks,
+            data_reserve_size,
             decompressor,
-            total_size,
             data_blocks,
             current_block_index: 0,
             current_block_data: Vec::new(),
@@ -116,6 +119,30 @@ impl<'a, R: Read + Seek> FolderReader<'a, R> {
         };
         folder_reader.load_block()?;
         Ok(folder_reader)
+    }
+
+    pub fn seek_to_uncompressed_offset(
+        &mut self,
+        new_offset: u64,
+    ) -> io::Result<()> {
+        if new_offset < self.current_block_start() {
+            self.rewind()?;
+        }
+        if new_offset > 0 {
+            // TODO: If folder is uncompressed, we should just jump straight to
+            // the correct block without "decompressing" those in between.
+            while self.data_blocks[self.current_block_index].cumulative_size
+                < new_offset
+            {
+                self.current_block_index += 1;
+                self.load_block()?;
+            }
+        }
+        debug_assert!(new_offset >= self.current_block_start());
+        self.current_offset_within_block =
+            (new_offset - self.current_block_start()) as usize;
+        self.current_offset_within_folder = new_offset;
+        Ok(())
     }
 
     fn current_block_start(&self) -> u64 {
@@ -138,15 +165,34 @@ impl<'a, R: Read + Seek> FolderReader<'a, R> {
     }
 
     fn load_block(&mut self) -> io::Result<()> {
-        if self.current_block_index >= self.data_blocks.len() {
+        if self.current_block_index >= self.num_data_blocks {
             self.current_block_data = Vec::new();
             return Ok(());
         }
-        let block = &self.data_blocks[self.current_block_index];
-        let reader = &mut &self.reader.inner;
+        debug_assert!(self.current_block_index <= self.data_blocks.len());
+        let block = if self.current_block_index == self.data_blocks.len() {
+            let previous_block = self.data_blocks.last().unwrap();
+            let reader = &mut &self.reader.inner;
+            reader.seek(SeekFrom::Start(
+                previous_block.data_offset
+                    + previous_block.compressed_size as u64,
+            ))?;
+            let block = parse_block_entry(
+                reader,
+                previous_block.cumulative_size,
+                self.data_reserve_size as usize,
+            )?;
+            self.data_blocks.push(block);
+            &self.data_blocks[self.current_block_index]
+        } else {
+            let block = &self.data_blocks[self.current_block_index];
+            let reader = &mut &self.reader.inner;
+            reader.seek(SeekFrom::Start(block.data_offset))?;
+            block
+        };
 
-        reader.seek(SeekFrom::Start(block.data_offset))?;
         let mut compressed_data = vec![0u8; block.compressed_size as usize];
+        let reader = &mut &self.reader.inner;
         reader.read_exact(&mut compressed_data)?;
         if block.checksum != 0 {
             let mut checksum = Checksum::new();
@@ -174,8 +220,7 @@ impl<'a, R: Read + Seek> FolderReader<'a, R> {
 
 impl<'a, R: Read + Seek + 'a> Read for FolderReader<'a, R> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        if buf.is_empty() || self.current_block_index >= self.data_blocks.len()
-        {
+        if buf.is_empty() || self.current_block_index >= self.num_data_blocks {
             return Ok(0);
         }
         if self.current_offset_within_block == self.current_block_data.len() {
@@ -193,44 +238,6 @@ impl<'a, R: Read + Seek + 'a> Read for FolderReader<'a, R> {
         self.current_offset_within_block += max_bytes;
         self.current_offset_within_folder += max_bytes as u64;
         Ok(max_bytes)
-    }
-}
-
-impl<'a, R: Read + Seek> Seek for FolderReader<'a, R> {
-    fn seek(&mut self, pos: SeekFrom) -> io::Result<u64> {
-        let new_offset = match pos {
-            SeekFrom::Start(offset) => offset as i64,
-            SeekFrom::Current(delta) => {
-                self.current_offset_within_folder as i64 + delta
-            }
-            SeekFrom::End(delta) => self.total_size as i64 + delta,
-        };
-        if new_offset < 0 || (new_offset as u64) > self.total_size {
-            invalid_input!(
-                "Cannot seek to {}, data length is {}",
-                new_offset,
-                self.total_size
-            );
-        }
-        let new_offset = new_offset as u64;
-        if new_offset < self.current_block_start() {
-            self.rewind()?;
-        }
-        if new_offset > 0 {
-            // TODO: If folder is uncompressed, we should just jump straight to
-            // the correct block without "decompressing" those in between.
-            while self.data_blocks[self.current_block_index].cumulative_size
-                < new_offset
-            {
-                self.current_block_index += 1;
-                self.load_block()?;
-            }
-        }
-        debug_assert!(new_offset >= self.current_block_start());
-        self.current_offset_within_block =
-            (new_offset - self.current_block_start()) as usize;
-        self.current_offset_within_folder = new_offset;
-        Ok(new_offset)
     }
 }
 
@@ -256,6 +263,15 @@ pub(crate) fn parse_folder_entry<R: Read>(
     Ok(entry)
 }
 
+/// Parse a data block entry from a reader.
+///
+/// The reader must be positioned at the start of the data block,
+/// which is either at the start first data block or immediately after
+/// the previous data block, i.e. at position
+/// `previous_data_block.data_offset + previous_data_block.compressed_size`.
+///
+/// Once this function returns, the reader will be positioned at the current
+/// block's `data_offset`.
 fn parse_block_entry<R: ReadSeek>(
     mut reader: R,
     cumulative_size: u64,
@@ -267,7 +283,6 @@ fn parse_block_entry<R: ReadSeek>(
     let mut reserve_data = vec![0u8; data_reserve_size];
     reader.read_exact(&mut reserve_data)?;
     let data_offset = reader.stream_position()?;
-    reader.seek(SeekFrom::Current(compressed_size as i64))?;
     let cumulative_size = cumulative_size + uncompressed_size as u64;
 
     Ok(DataBlockEntry {

@@ -155,11 +155,18 @@ impl<R: Read + Seek> Cabinet<R> {
         match self.get_file_entry(name) {
             Some(file_entry) => {
                 let folder_index = file_entry.folder_index as usize;
-                let offset = file_entry.uncompressed_offset as u64;
+                let file_start_in_folder =
+                    file_entry.uncompressed_offset as u64;
                 let size = file_entry.uncompressed_size() as u64;
                 let mut folder_reader = self.read_folder(folder_index)?;
-                folder_reader.seek(SeekFrom::Start(offset))?;
-                Ok(FileReader { reader: folder_reader, offset: 0, size })
+                folder_reader
+                    .seek_to_uncompressed_offset(file_start_in_folder)?;
+                Ok(FileReader {
+                    reader: folder_reader,
+                    file_start_in_folder,
+                    offset: 0,
+                    size,
+                })
             }
 
             None => not_found!("No such file in cabinet: {:?}", name),
