@@ -19,6 +19,7 @@ pub struct FileEntries<'a> {
 #[derive(Debug, Clone)]
 pub struct FileEntry {
     name: String,
+    name_raw: Vec<u8>,
     datetime: Option<PrimitiveDateTime>,
     uncompressed_size: u32,
     attributes: u16,
@@ -52,6 +53,11 @@ impl FileEntry {
     /// Returns the name of file.
     pub fn name(&self) -> &str {
         &self.name
+    }
+
+    /// Returns the name of file as a byte slice, useful if the string is not utf-8.
+    pub fn name_raw(&self) -> &Vec<u8> {
+        &self.name_raw
     }
 
     /// Returns the datetime for this file.  According to the CAB spec, this
@@ -150,9 +156,10 @@ pub(crate) fn parse_file_entry<R: Read>(
     let datetime = datetime_from_bits(date, time);
     let attributes = reader.read_u16::<LittleEndian>()?;
     let is_utf8 = (attributes & consts::ATTR_NAME_IS_UTF) != 0;
-    let name = read_null_terminated_string(&mut reader, is_utf8)?;
+    let (name_raw,name) = read_null_terminated_string(&mut reader, is_utf8)?;
     let entry = FileEntry {
         name,
+        name_raw,
         folder_index,
         datetime,
         uncompressed_size,
