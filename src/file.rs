@@ -56,7 +56,7 @@ impl FileEntry {
     }
 
     /// Returns the name of file as a byte slice, useful if the string is not utf-8.
-    pub fn name_raw(&self) -> &Vec<u8> {
+    pub fn name_raw(&self) -> &[u8] {
         &self.name_raw
     }
 
@@ -156,7 +156,7 @@ pub(crate) fn parse_file_entry<R: Read>(
     let datetime = datetime_from_bits(date, time);
     let attributes = reader.read_u16::<LittleEndian>()?;
     let is_utf8 = (attributes & consts::ATTR_NAME_IS_UTF) != 0;
-    let (name_raw,name) = read_null_terminated_string(&mut reader, is_utf8)?;
+    let (name,name_raw) = read_null_terminated_string(&mut reader, is_utf8)?;
     let entry = FileEntry {
         name,
         name_raw,
