@@ -156,7 +156,7 @@ pub(crate) fn parse_file_entry<R: Read>(
     let datetime = datetime_from_bits(date, time);
     let attributes = reader.read_u16::<LittleEndian>()?;
     let is_utf8 = (attributes & consts::ATTR_NAME_IS_UTF) != 0;
-    let (name,name_raw) = read_null_terminated_string(&mut reader, is_utf8)?;
+    let (name, name_raw) = read_null_terminated_string(&mut reader, is_utf8)?;
     let entry = FileEntry {
         name,
         name_raw,
