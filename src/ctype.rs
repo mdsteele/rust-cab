@@ -75,9 +75,9 @@ impl CompressionType {
             CompressionType::MsZip => CTYPE_MSZIP,
             CompressionType::Quantum(level, memory) => {
                 CTYPE_QUANTUM
-                    | (level.max(QUANTUM_LEVEL_MIN).min(QUANTUM_LEVEL_MAX)
+                    | (level.clamp(QUANTUM_LEVEL_MIN,QUANTUM_LEVEL_MAX)
                         << 4)
-                    | (memory.max(QUANTUM_MEMORY_MIN).min(QUANTUM_MEMORY_MAX)
+                    | (memory.clamp(QUANTUM_MEMORY_MIN,QUANTUM_MEMORY_MAX)
                         << 8)
             }
             CompressionType::Lzx(window_size) => {
