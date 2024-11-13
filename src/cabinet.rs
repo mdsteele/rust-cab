@@ -78,15 +78,19 @@ impl<R: Read + Seek> Cabinet<R> {
             reader.read_exact(&mut header_reserve_data)?;
         }
         let _prev_cabinet = if (flags & consts::FLAG_PREV_CABINET) != 0 {
-            let cab_name = read_null_terminated_string(&mut reader, false)?;
-            let disk_name = read_null_terminated_string(&mut reader, false)?;
+            let (cab_name, _) =
+                read_null_terminated_string(&mut reader, false)?;
+            let (disk_name, _) =
+                read_null_terminated_string(&mut reader, false)?;
             Some((cab_name, disk_name))
         } else {
             None
         };
         let _next_cabinet = if (flags & consts::FLAG_NEXT_CABINET) != 0 {
-            let cab_name = read_null_terminated_string(&mut reader, false)?;
-            let disk_name = read_null_terminated_string(&mut reader, false)?;
+            let (cab_name, _) =
+                read_null_terminated_string(&mut reader, false)?;
+            let (disk_name, _) =
+                read_null_terminated_string(&mut reader, false)?;
             Some((cab_name, disk_name))
         } else {
             None
