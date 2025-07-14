@@ -115,3 +115,4 @@ mod file;
 mod folder;
 mod mszip;
 mod string;
+mod all_files;
