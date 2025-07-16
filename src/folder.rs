@@ -16,6 +16,7 @@ pub struct FolderEntries<'a> {
 }
 
 /// Metadata about one folder in a cabinet.
+#[derive(Clone)]
 pub struct FolderEntry {
     first_data_block_offset: u32,
     num_data_blocks: u16,

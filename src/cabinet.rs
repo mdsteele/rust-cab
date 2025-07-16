@@ -3,6 +3,7 @@ use std::io::{self, Read, Seek, SeekFrom};
 
 use byteorder::{LittleEndian, ReadBytesExt};
 
+use crate::all_files::AllFiles;
 use crate::consts;
 use crate::file::{parse_file_entry, FileEntry, FileReader};
 use crate::folder::{
@@ -177,6 +178,42 @@ impl<R: Read + Seek> Cabinet<R> {
         }
     }
 
+    /// Returns `AllFiles` for sequential extraction of all files in the archive.
+    /// Example
+    /// ```rust
+    /// # use std::io::Cursor;
+    /// # use std::io::Read;
+    /// # use std::io::Write;
+    /// # let original_string = lipsum::lipsum(30000);
+    /// # let original_bytes = original_string.as_bytes();
+    /// # let mut cab_builder = cab::CabinetBuilder::new();
+    /// # cab_builder
+    /// #     .add_folder(cab::CompressionType::None)
+    /// #     .add_file("lorem_ipsum.txt");
+    /// # let mut cab_writer = cab_builder.build(Cursor::new(Vec::new())).unwrap();
+    /// # while let Some(mut file_writer) = cab_writer.next_file().unwrap() {
+    /// #     file_writer.write_all(original_bytes).unwrap();
+    /// # }
+    /// # let cab_file = cab_writer.finish().unwrap().into_inner();
+    /// # let mut cabinet = cab::Cabinet::new(Cursor::new(cab_file)).unwrap();
+    /// let mut all_files = cabinet.all_files();
+    /// while let Some((file_entry, mut file_reader)) = all_files.next_file() {
+    ///     println!("Extracting {}",file_entry.name());
+    ///     let mut buf = vec![];
+    ///     file_reader.read_to_end(&mut buf);
+    ///     println!("Extracted {} bytes.",buf.len());
+    /// }
+    /// ```
+    pub fn all_files<'a>(&'a self) -> AllFiles<'a, R> {
+        AllFiles {
+            data_reserve_size: self.inner.data_reserve_size,
+            folder_stack: self.inner.folders.clone(),
+            cabinet: self,
+            files_stack: vec![],
+            reader_state: None,
+        }
+    }
+
     /// Returns a reader over the decompressed data in the specified folder.
     fn read_folder(&mut self, index: usize) -> io::Result<FolderReader<R>> {
         if index >= self.inner.folders.len() {
@@ -196,13 +233,13 @@ impl<R: Read + Seek> Cabinet<R> {
     }
 }
 
-impl<'a, R: ?Sized + Read> Read for &'a CabinetInner<R> {
+impl<R: ?Sized + Read> Read for &CabinetInner<R> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         self.reader.borrow_mut().read(buf)
     }
 }
 
-impl<'a, R: ?Sized + Seek> Seek for &'a CabinetInner<R> {
+impl<R: ?Sized + Seek> Seek for &CabinetInner<R> {
     fn seek(&mut self, pos: SeekFrom) -> io::Result<u64> {
         self.reader.borrow_mut().seek(pos)
     }

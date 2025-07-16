@@ -138,11 +138,11 @@ impl Decompressor {
             Decompressor::Uncompressed => data,
             Decompressor::MsZip(decompressor) => decompressor
                 .decompress_block(&data, uncompressed_size)
-                .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?
+                .map_err(io::Error::other)?
                 .to_vec(),
             Decompressor::Lzx(decompressor) => decompressor
                 .decompress_next(&data, uncompressed_size)
-                .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?
+                .map_err(io::Error::other)?
                 .to_vec(),
         };
         Ok(data)
