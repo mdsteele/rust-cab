@@ -105,6 +105,7 @@ pub use folder::{FolderEntries, FolderEntry};
 #[macro_use]
 mod macros;
 
+mod all_files;
 mod builder;
 mod cabinet;
 mod checksum;
@@ -115,4 +116,3 @@ mod file;
 mod folder;
 mod mszip;
 mod string;
-mod all_files;

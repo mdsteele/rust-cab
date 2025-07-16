@@ -233,13 +233,13 @@ impl<R: Read + Seek> Cabinet<R> {
     }
 }
 
-impl<'a, R: ?Sized + Read> Read for &'a CabinetInner<R> {
+impl<R: ?Sized + Read> Read for &CabinetInner<R> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         self.reader.borrow_mut().read(buf)
     }
 }
 
-impl<'a, R: ?Sized + Seek> Seek for &'a CabinetInner<R> {
+impl<R: ?Sized + Seek> Seek for &CabinetInner<R> {
     fn seek(&mut self, pos: SeekFrom) -> io::Result<u64> {
         self.reader.borrow_mut().seek(pos)
     }
