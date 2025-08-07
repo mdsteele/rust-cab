@@ -19,7 +19,7 @@ pub struct FolderEntries<'a> {
 #[derive(Clone)]
 pub struct FolderEntry {
     first_data_block_offset: u32,
-    num_data_blocks: u16,
+    pub(crate) num_data_blocks: u32,
     compression_type: CompressionType,
     reserve_data: Vec<u8>,
     pub(crate) files: Vec<FileEntry>,
@@ -73,7 +73,7 @@ impl FolderEntry {
     }
 
     /// Returns the number of data blocks used to store this folder's data.
-    pub fn num_data_blocks(&self) -> u16 {
+    pub fn num_data_blocks(&self) -> u32 {
         self.num_data_blocks
     }
 
@@ -256,7 +256,7 @@ pub(crate) fn parse_folder_entry<R: Read>(
     }
     let entry = FolderEntry {
         first_data_block_offset: first_data_offset,
-        num_data_blocks,
+        num_data_blocks: num_data_blocks as u32,
         compression_type,
         reserve_data: folder_reserve_data,
         files: vec![],
