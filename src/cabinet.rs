@@ -4,7 +4,7 @@ use std::io::{self, Read, Seek, SeekFrom};
 use byteorder::{LittleEndian, ReadBytesExt};
 
 use crate::all_files::AllFiles;
-use crate::consts;
+use crate::{consts, CompressionType};
 use crate::file::{parse_file_entry, FileEntry, FileReader};
 use crate::folder::{
     parse_folder_entry, FolderEntries, FolderEntry, FolderReader,
@@ -113,6 +113,10 @@ impl<R: Read + Seek> Cabinet<R> {
             let folder = &mut folders[folder_index];
             folder.files.push(entry.clone());
             files.push(entry);
+        }
+        for folder in folders.iter_mut() {
+            let uncompressed_length: u32 = folder.files.iter().map(|x| x.uncompressed_size()).sum();
+            folder.num_data_blocks = recalculate_block_size(folder.compression_type(), uncompressed_length, folder.num_data_blocks());
         }
         Ok(Cabinet {
             inner: CabinetInner {
@@ -233,6 +237,17 @@ impl<R: Read + Seek> Cabinet<R> {
     }
 }
 
+/// Re-calculate the real number of blocks. Since the cabinet header num_data_blocks is limited to 0xffff
+/// The actual maximum supported is 0x1ffff blocks, or 4gb of uncompressed data.
+fn recalculate_block_size(compression_type: CompressionType, uncompressed_size: u32, block_size: u32) -> u32 {
+    match compression_type {
+        CompressionType::MsZip => {
+            let rem = uncompressed_size % 0x8000;
+            uncompressed_size / 0x8000 + if rem > 0 { 1 } else { 0 }
+        }
+        _ => block_size
+    }
+}
 impl<R: ?Sized + Read> Read for &CabinetInner<R> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         self.reader.borrow_mut().read(buf)
