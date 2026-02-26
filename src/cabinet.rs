@@ -247,7 +247,7 @@ impl<R: ?Sized + Seek> Seek for &CabinetInner<R> {
 
 #[cfg(test)]
 mod tests {
-    use std::io::{Cursor, Read};
+    use std::io::{self, Cursor, Read};
 
     use super::Cabinet;
 
@@ -413,6 +413,23 @@ mod tests {
         let mut data = Vec::new();
         cabinet.read_file("bye.txt").unwrap().read_to_end(&mut data).unwrap();
         assert_eq!(data, b"See you later!\r\n");
+    }
+
+    #[test]
+    fn read_cabinet_with_zero_data_blocks_returns_error() {
+        // Malformed CAB: one folder with num_data_blocks=0, one file entry
+        // with non-zero uncompressed_offset referencing that folder.
+        // This must return an io::Error, not panic with index out of bounds.
+        let binary: &[u8] = b"MSCF\0\0\0\0\x42\0\0\0\0\0\0\0\
+            \x2c\0\0\0\0\0\0\0\x03\x01\x01\0\x01\0\0\0\0\0\0\0\
+            \x42\0\0\0\x00\0\0\0\
+            \x0e\0\0\0\x01\0\0\0\0\0\x6c\x22\xba\x59\x01\0a.txt\0";
+        assert_eq!(binary.len(), 0x42);
+        let mut cabinet = Cabinet::new(Cursor::new(binary)).unwrap();
+        match cabinet.read_file("a.txt") {
+            Err(err) => assert_eq!(err.kind(), io::ErrorKind::InvalidData),
+            Ok(_) => panic!("expected InvalidData error"),
+        }
     }
 
     #[test]
