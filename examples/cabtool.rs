@@ -75,16 +75,17 @@ fn main() {
                     folder_size += metadata.len();
                     let file = folder.add_file(filename);
                     if let Ok(time) = metadata.modified()
-                        && let Ok(dur) = time.duration_since(UNIX_EPOCH) {
-                            let dt = OffsetDateTime::from_unix_timestamp(
-                                dur.as_secs() as i64,
-                            )
-                            .unwrap();
-                            file.set_datetime(PrimitiveDateTime::new(
-                                dt.date(),
-                                dt.time(),
-                            ));
-                        }
+                        && let Ok(dur) = time.duration_since(UNIX_EPOCH)
+                    {
+                        let dt = OffsetDateTime::from_unix_timestamp(
+                            dur.as_secs() as i64,
+                        )
+                        .unwrap();
+                        file.set_datetime(PrimitiveDateTime::new(
+                            dt.date(),
+                            dt.time(),
+                        ));
+                    }
                     file_index += 1;
                 }
             }
