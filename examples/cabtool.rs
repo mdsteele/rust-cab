@@ -74,8 +74,8 @@ fn main() {
                     let metadata = fs::metadata(filename).unwrap();
                     folder_size += metadata.len();
                     let file = folder.add_file(filename);
-                    if let Ok(time) = metadata.modified() {
-                        if let Ok(dur) = time.duration_since(UNIX_EPOCH) {
+                    if let Ok(time) = metadata.modified()
+                        && let Ok(dur) = time.duration_since(UNIX_EPOCH) {
                             let dt = OffsetDateTime::from_unix_timestamp(
                                 dur.as_secs() as i64,
                             )
@@ -85,7 +85,6 @@ fn main() {
                                 dt.time(),
                             ));
                         }
-                    }
                     file_index += 1;
                 }
             }
@@ -101,7 +100,7 @@ fn main() {
             let cabinet = Cabinet::new(File::open(path).unwrap()).unwrap();
             for (index, folder) in cabinet.folder_entries().enumerate() {
                 for file in folder.file_entries() {
-                    list_file(index, &folder, file, long);
+                    list_file(index, folder, file, long);
                 }
             }
         }

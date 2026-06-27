@@ -326,7 +326,7 @@ mod tests {
         let mut cabinet = Cabinet::new(Cursor::new(binary)).unwrap();
         assert_eq!(cabinet.folder_entries().len(), 1);
         assert_eq!(
-            cabinet.folder_entries().nth(0).unwrap().num_data_blocks(),
+            cabinet.folder_entries().next().unwrap().num_data_blocks(),
             2
         );
 

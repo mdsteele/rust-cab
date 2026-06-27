@@ -155,7 +155,7 @@ mod tests {
         assert!(input.len() < expected.len());
         let mut decompressor = MsZipDecompressor::new();
         let output =
-            decompressor.decompress_block(&input, expected.len()).unwrap();
+            decompressor.decompress_block(input, expected.len()).unwrap();
         assert_eq!(output, expected);
     }
 
