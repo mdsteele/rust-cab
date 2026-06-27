@@ -25,7 +25,7 @@ pub fn datetime_to_bits(mut datetime: PrimitiveDateTime) -> (u16, u16) {
     }
 
     // Round to nearest two seconds:
-    if datetime.second() % 2 != 0 {
+    if !datetime.second().is_multiple_of(2) {
         datetime += time::Duration::seconds(1);
     }
 

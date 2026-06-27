@@ -145,7 +145,7 @@ impl<R: Read + Seek> Cabinet<R> {
     }
 
     /// Returns an iterator over the folder entries in this cabinet.
-    pub fn folder_entries(&self) -> FolderEntries {
+    pub fn folder_entries(&self) -> FolderEntries<'_> {
         FolderEntries { iter: self.inner.folders.iter() }
     }
 
@@ -156,7 +156,7 @@ impl<R: Read + Seek> Cabinet<R> {
 
     /// Returns a reader over the decompressed data for the file in the cabinet
     /// with the given name.
-    pub fn read_file(&mut self, name: &str) -> io::Result<FileReader<R>> {
+    pub fn read_file(&mut self, name: &str) -> io::Result<FileReader<'_, R>> {
         match self.get_file_entry(name) {
             Some(file_entry) => {
                 let folder_index = file_entry.folder_index as usize;
@@ -215,7 +215,7 @@ impl<R: Read + Seek> Cabinet<R> {
     }
 
     /// Returns a reader over the decompressed data in the specified folder.
-    fn read_folder(&mut self, index: usize) -> io::Result<FolderReader<R>> {
+    fn read_folder(&mut self, index: usize) -> io::Result<FolderReader<'_, R>> {
         if index >= self.inner.folders.len() {
             invalid_input!(
                 "Folder index {} is out of range (cabinet has {} folders)",
