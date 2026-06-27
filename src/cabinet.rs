@@ -5,9 +5,9 @@ use byteorder::{LittleEndian, ReadBytesExt};
 
 use crate::all_files::AllFiles;
 use crate::consts;
-use crate::file::{parse_file_entry, FileEntry, FileReader};
+use crate::file::{FileEntry, FileReader, parse_file_entry};
 use crate::folder::{
-    parse_folder_entry, FolderEntries, FolderEntry, FolderReader,
+    FolderEntries, FolderEntry, FolderReader, parse_folder_entry,
 };
 use crate::string::read_null_terminated_string;
 
@@ -215,7 +215,10 @@ impl<R: Read + Seek> Cabinet<R> {
     }
 
     /// Returns a reader over the decompressed data in the specified folder.
-    fn read_folder(&mut self, index: usize) -> io::Result<FolderReader<'_, R>> {
+    fn read_folder(
+        &mut self,
+        index: usize,
+    ) -> io::Result<FolderReader<'_, R>> {
         if index >= self.inner.folders.len() {
             invalid_input!(
                 "Folder index {} is out of range (cabinet has {} folders)",

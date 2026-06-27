@@ -140,7 +140,7 @@ impl MsZipDecompressor {
 mod tests {
     use rand::RngCore;
 
-    use super::{MsZipCompressor, MsZipDecompressor, DEFLATE_MAX_DICT_LEN};
+    use super::{DEFLATE_MAX_DICT_LEN, MsZipCompressor, MsZipDecompressor};
 
     #[test]
     fn read_compressed_data() {
