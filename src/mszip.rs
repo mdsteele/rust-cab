@@ -199,7 +199,7 @@ mod tests {
 
         #[rustfmt::skip]
         #[link(name = "cabinet")]
-        extern "system" {
+        unsafe extern "system" {
             fn CreateCompressor(
                 Algorithm: DWORD,
                 AllocationRoutines: LPVOID,
@@ -265,7 +265,7 @@ mod tests {
                     {
                         panic!("Compress failed");
                     }
-                    buffer.resize(compressed_size.assume_init() as usize, 0);
+                    buffer.resize(compressed_size.assume_init(), 0);
                 }
                 blocks.push((slice.len(), buffer));
             }
