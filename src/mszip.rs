@@ -140,7 +140,7 @@ impl MsZipDecompressor {
 mod tests {
     use rand::RngCore;
 
-    use super::{MsZipCompressor, MsZipDecompressor, DEFLATE_MAX_DICT_LEN};
+    use super::{DEFLATE_MAX_DICT_LEN, MsZipCompressor, MsZipDecompressor};
 
     #[test]
     fn read_compressed_data() {
@@ -155,7 +155,7 @@ mod tests {
         assert!(input.len() < expected.len());
         let mut decompressor = MsZipDecompressor::new();
         let output =
-            decompressor.decompress_block(&input, expected.len()).unwrap();
+            decompressor.decompress_block(input, expected.len()).unwrap();
         assert_eq!(output, expected);
     }
 
@@ -199,7 +199,7 @@ mod tests {
 
         #[rustfmt::skip]
         #[link(name = "cabinet")]
-        extern "system" {
+        unsafe extern "system" {
             fn CreateCompressor(
                 Algorithm: DWORD,
                 AllocationRoutines: LPVOID,
@@ -265,7 +265,7 @@ mod tests {
                     {
                         panic!("Compress failed");
                     }
-                    buffer.resize(compressed_size.assume_init() as usize, 0);
+                    buffer.resize(compressed_size.assume_init(), 0);
                 }
                 blocks.push((slice.len(), buffer));
             }

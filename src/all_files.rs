@@ -1,6 +1,6 @@
 use std::io::{Read, Seek};
 
-use crate::{folder::FolderReader, Cabinet, FileEntry, FolderEntry};
+use crate::{Cabinet, FileEntry, FolderEntry, folder::FolderReader};
 
 pub struct SingleFileReader<'a, 'b, R>
 where

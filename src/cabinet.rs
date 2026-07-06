@@ -5,9 +5,9 @@ use byteorder::{LittleEndian, ReadBytesExt};
 
 use crate::all_files::AllFiles;
 use crate::consts;
-use crate::file::{parse_file_entry, FileEntry, FileReader};
+use crate::file::{FileEntry, FileReader, parse_file_entry};
 use crate::folder::{
-    parse_folder_entry, FolderEntries, FolderEntry, FolderReader,
+    FolderEntries, FolderEntry, FolderReader, parse_folder_entry,
 };
 use crate::string::read_null_terminated_string;
 
@@ -145,7 +145,7 @@ impl<R: Read + Seek> Cabinet<R> {
     }
 
     /// Returns an iterator over the folder entries in this cabinet.
-    pub fn folder_entries(&self) -> FolderEntries {
+    pub fn folder_entries(&self) -> FolderEntries<'_> {
         FolderEntries { iter: self.inner.folders.iter() }
     }
 
@@ -156,7 +156,7 @@ impl<R: Read + Seek> Cabinet<R> {
 
     /// Returns a reader over the decompressed data for the file in the cabinet
     /// with the given name.
-    pub fn read_file(&mut self, name: &str) -> io::Result<FileReader<R>> {
+    pub fn read_file(&mut self, name: &str) -> io::Result<FileReader<'_, R>> {
         match self.get_file_entry(name) {
             Some(file_entry) => {
                 let folder_index = file_entry.folder_index as usize;
@@ -215,7 +215,10 @@ impl<R: Read + Seek> Cabinet<R> {
     }
 
     /// Returns a reader over the decompressed data in the specified folder.
-    fn read_folder(&mut self, index: usize) -> io::Result<FolderReader<R>> {
+    fn read_folder(
+        &mut self,
+        index: usize,
+    ) -> io::Result<FolderReader<'_, R>> {
         if index >= self.inner.folders.len() {
             invalid_input!(
                 "Folder index {} is out of range (cabinet has {} folders)",
@@ -323,7 +326,7 @@ mod tests {
         let mut cabinet = Cabinet::new(Cursor::new(binary)).unwrap();
         assert_eq!(cabinet.folder_entries().len(), 1);
         assert_eq!(
-            cabinet.folder_entries().nth(0).unwrap().num_data_blocks(),
+            cabinet.folder_entries().next().unwrap().num_data_blocks(),
             2
         );
 

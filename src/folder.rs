@@ -83,7 +83,7 @@ impl FolderEntry {
     }
 
     /// Returns an iterator over the file entries in this folder.
-    pub fn file_entries(&self) -> FileEntries {
+    pub fn file_entries(&self) -> FileEntries<'_> {
         FileEntries { iter: self.files.iter() }
     }
 }

@@ -55,7 +55,7 @@ fn cabinet_with_one_small_mszipped_text_file() {
 
     let mut cabinet = cab::Cabinet::new(Cursor::new(cab_file)).unwrap();
     assert_eq!(
-        cabinet.folder_entries().nth(0).unwrap().compression_type(),
+        cabinet.folder_entries().next().unwrap().compression_type(),
         cab::CompressionType::MsZip
     );
     let mut output = Vec::new();
@@ -81,10 +81,10 @@ fn cabinet_with_one_big_uncompressed_text_file() {
 
     let mut cabinet = cab::Cabinet::new(Cursor::new(cab_file)).unwrap();
     {
-        let folder = cabinet.folder_entries().nth(0).unwrap();
+        let folder = cabinet.folder_entries().next().unwrap();
         assert_eq!(folder.compression_type(), cab::CompressionType::None);
         assert!(folder.num_data_blocks() > 1);
-        let file = folder.file_entries().nth(0).unwrap();
+        let file = folder.file_entries().next().unwrap();
         assert_eq!(file.uncompressed_size() as usize, original.len());
     }
     let mut output = Vec::new();
@@ -111,9 +111,9 @@ fn cabinet_with_one_big_mszipped_text_file() {
 
     let mut cabinet = cab::Cabinet::new(Cursor::new(cab_file)).unwrap();
     {
-        let folder = cabinet.folder_entries().nth(0).unwrap();
+        let folder = cabinet.folder_entries().next().unwrap();
         assert_eq!(folder.compression_type(), cab::CompressionType::MsZip);
-        let file = folder.file_entries().nth(0).unwrap();
+        let file = folder.file_entries().next().unwrap();
         assert_eq!(file.uncompressed_size() as usize, original.len());
     }
     let mut output = Vec::new();
@@ -141,10 +141,10 @@ fn random_data_roundtrip(num_bytes: usize, ctype: cab::CompressionType) {
 
     let mut cabinet = cab::Cabinet::new(Cursor::new(cab_file)).unwrap();
     {
-        let folder = cabinet.folder_entries().nth(0).unwrap();
+        let folder = cabinet.folder_entries().next().unwrap();
         assert_eq!(folder.compression_type(), ctype);
         assert!((folder.num_data_blocks() as usize) >= (num_bytes / 0x8000));
-        let file = folder.file_entries().nth(0).unwrap();
+        let file = folder.file_entries().next().unwrap();
         assert_eq!(file.name(), "binary");
         assert_eq!(file.uncompressed_size() as usize, original.len());
     }
