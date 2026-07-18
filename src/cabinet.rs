@@ -315,6 +315,28 @@ mod tests {
     }
 
     #[test]
+    fn read_file_in_folder_with_no_data_blocks() {
+        // Same cabinet as `read_uncompressed_cabinet_with_two_files`, but the
+        // folder is patched to claim zero data blocks. Reading `bye.txt`, whose
+        // entry starts at a nonzero offset within that folder, used to seek past
+        // the (empty) list of data blocks and panic with an out-of-bounds index.
+        let mut binary = b"MSCF\0\0\0\0\x80\0\0\0\0\0\0\0\
+            \x2c\0\0\0\0\0\0\0\x03\x01\x01\0\x02\0\0\0\x34\x12\0\0\
+            \x5b\0\0\0\x01\0\0\0\
+            \x0e\0\0\0\0\0\0\0\0\0\x6c\x22\xe7\x59\x01\0hi.txt\0\
+            \x0f\0\0\0\x0e\0\0\0\0\0\x6c\x22\xe7\x59\x01\0bye.txt\0\
+            \0\0\0\0\x1d\0\x1d\0Hello, world!\nSee you later!\n"
+            .to_vec();
+        // Clear the folder's num_data_blocks field.
+        binary[40] = 0;
+        let mut cabinet = Cabinet::new(Cursor::new(binary)).unwrap();
+
+        let mut data = Vec::new();
+        cabinet.read_file("bye.txt").unwrap().read_to_end(&mut data).unwrap();
+        assert!(data.is_empty());
+    }
+
+    #[test]
     fn read_uncompressed_cabinet_with_two_data_blocks() {
         let binary: &[u8] = b"MSCF\0\0\0\0\x61\0\0\0\0\0\0\0\
             \x2c\0\0\0\0\0\0\0\x03\x01\x01\0\x01\0\0\0\x34\x12\0\0\
