@@ -130,6 +130,9 @@ impl<'a, R: Read + Seek> FolderReader<'a, R> {
             self.rewind()?;
         }
         if new_offset > 0 {
+            if self.data_blocks.is_empty() {
+                invalid_data!("folder has no data blocks");
+            }
             // TODO: If folder is uncompressed, we should just jump straight to
             // the correct block without "decompressing" those in between.
             while self.current_block_index < self.num_data_blocks
@@ -137,6 +140,9 @@ impl<'a, R: Read + Seek> FolderReader<'a, R> {
                     < new_offset
             {
                 self.current_block_index += 1;
+                if self.current_block_index >= self.num_data_blocks {
+                    invalid_data!("offset beyond available data blocks");
+                }
                 self.load_block()?;
             }
         }
