@@ -132,8 +132,9 @@ impl<'a, R: Read + Seek> FolderReader<'a, R> {
         if new_offset > 0 {
             // TODO: If folder is uncompressed, we should just jump straight to
             // the correct block without "decompressing" those in between.
-            while self.data_blocks[self.current_block_index].cumulative_size
-                < new_offset
+            while self.current_block_index < self.num_data_blocks
+                && self.data_blocks[self.current_block_index].cumulative_size
+                    < new_offset
             {
                 self.current_block_index += 1;
                 self.load_block()?;
