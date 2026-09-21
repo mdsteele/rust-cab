@@ -106,6 +106,12 @@ impl FileEntry {
     pub fn is_name_utf(&self) -> bool {
         (self.attributes & consts::ATTR_NAME_IS_UTF) != 0
     }
+
+    /// Returns the offset of this file within the uncompressed data of its
+    /// folder
+    pub fn uncompressed_offset(&self) -> u32 {
+        self.uncompressed_offset
+    }
 }
 
 impl<'a, R: Read + Seek> Read for FileReader<'a, R> {
