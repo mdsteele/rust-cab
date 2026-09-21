@@ -100,7 +100,7 @@ pub use builder::{
 pub use cabinet::Cabinet;
 pub use ctype::CompressionType;
 pub use file::{FileEntries, FileEntry, FileReader};
-pub use folder::{FolderEntries, FolderEntry};
+pub use folder::{FolderEntries, FolderEntry, FolderReader};
 
 #[macro_use]
 mod macros;

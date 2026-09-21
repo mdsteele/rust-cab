@@ -36,7 +36,7 @@ struct DataBlockEntry {
 }
 
 /// A reader for reading decompressed data from a cabinet folder.
-pub(crate) struct FolderReader<'a, R> {
+pub struct FolderReader<'a, R> {
     reader: &'a Cabinet<dyn ReadSeek + 'a>,
     num_data_blocks: usize,
     data_reserve_size: u8,
@@ -122,6 +122,10 @@ impl<'a, R: Read + Seek> FolderReader<'a, R> {
         Ok(folder_reader)
     }
 
+    /// Advances the reader within the folder's decompressed stream to
+    /// `new_offset`. Blocks are only decompressed when seeking *forwards*;
+    /// seeking to an earlier offset restarts decompression from the beginning
+    /// of the folder.
     pub fn seek_to_uncompressed_offset(
         &mut self,
         new_offset: u64,

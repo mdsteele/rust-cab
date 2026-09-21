@@ -215,7 +215,7 @@ impl<R: Read + Seek> Cabinet<R> {
     }
 
     /// Returns a reader over the decompressed data in the specified folder.
-    fn read_folder(
+    pub fn read_folder(
         &mut self,
         index: usize,
     ) -> io::Result<FolderReader<'_, R>> {
